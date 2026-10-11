@@ -12,8 +12,12 @@ export type Task = {
   title: string
   projectId: string
   due: string
+  dueDate: string
+  priority: TaskPriority
   completed: boolean
 }
+
+export type TaskPriority = 'Bassa' | 'Media' | 'Alta' | 'Urgente'
 
 export type Idea = {
   id: string
@@ -69,12 +73,21 @@ export const initialProjects: Project[] = [
   },
 ]
 
+export function getLocalDate(offsetDays = 0, now = new Date()): string {
+  const date = new Date(now)
+  date.setDate(date.getDate() + offsetDays)
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return localDate.toISOString().slice(0, 10)
+}
+
 export const initialTasks: Task[] = [
   {
     id: 't1',
     title: 'Completare la dashboard',
     projectId: 'p1',
     due: 'Oggi',
+    dueDate: getLocalDate(),
+    priority: 'Alta',
     completed: false,
   },
   {
@@ -82,6 +95,8 @@ export const initialTasks: Task[] = [
     title: 'Ripassare gli hook di React',
     projectId: 'p2',
     due: 'Oggi',
+    dueDate: getLocalDate(),
+    priority: 'Media',
     completed: false,
   },
   {
@@ -89,6 +104,8 @@ export const initialTasks: Task[] = [
     title: 'Sistemare la documentazione',
     projectId: 'p1',
     due: 'Domani',
+    dueDate: getLocalDate(1),
+    priority: 'Bassa',
     completed: true,
   },
   {
@@ -96,6 +113,8 @@ export const initialTasks: Task[] = [
     title: 'Scrivere uno script di backup',
     projectId: 'p3',
     due: 'Domani',
+    dueDate: getLocalDate(1),
+    priority: 'Media',
     completed: false,
   },
 ]
@@ -114,8 +133,19 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
-function isProjectStatus(value: unknown): value is Project['status'] {
+export function isProjectStatus(value: unknown): value is Project['status'] {
   return value === 'In corso' || value === 'In pausa' || value === 'Completato'
+}
+
+function isLocalDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  )
 }
 
 function parseProject(value: unknown): Project | null {
@@ -141,13 +171,57 @@ function parseTask(value: unknown): Task | null {
     return null
   }
 
+  const legacyDue = typeof value.due === 'string' ? value.due : ''
+  const persistedDueDate =
+    typeof value.dueDate === 'string' && isLocalDate(value.dueDate)
+      ? value.dueDate
+      : ''
+  const dueDate =
+    persistedDueDate ||
+    (legacyDue === 'Oggi'
+      ? getLocalDate()
+      : legacyDue === 'Domani'
+        ? getLocalDate(1)
+        : '')
+
   return {
     id: value.id,
     title: value.title.trim(),
     projectId: typeof value.projectId === 'string' ? value.projectId : '',
-    due: typeof value.due === 'string' ? value.due : 'Senza scadenza',
+    due: legacyDue || 'Senza scadenza',
+    dueDate,
+    priority: isTaskPriority(value.priority) ? value.priority : 'Media',
     completed: typeof value.completed === 'boolean' ? value.completed : false,
   }
+}
+
+export function isTaskPriority(value: unknown): value is TaskPriority {
+  return (
+    value === 'Bassa' ||
+    value === 'Media' ||
+    value === 'Alta' ||
+    value === 'Urgente'
+  )
+}
+
+export function formatTaskDueDate(dueDate: string, now = new Date()): string {
+  if (!dueDate) return 'Senza scadenza'
+  const today = getLocalDate(0, now)
+  const tomorrow = getLocalDate(1, now)
+  if (dueDate === today) return 'Oggi'
+  if (dueDate === tomorrow) return 'Domani'
+
+  const [year, month, day] = dueDate.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
+  return date.toLocaleDateString('it-IT', {
+    day: 'numeric',
+    month: 'short',
+    year: year === now.getFullYear() ? undefined : 'numeric',
+  })
+}
+
+export function isTaskOverdue(task: Task, now = new Date()): boolean {
+  return !task.completed && Boolean(task.dueDate) && task.dueDate < getLocalDate(0, now)
 }
 
 function parseIdea(value: unknown): Idea | null {
@@ -175,6 +249,23 @@ function uniqueById<T extends { id: string }>(records: T[]): T[] {
     ids.add(record.id)
     return true
   })
+}
+
+function recordNeedsRecovery(
+  raw: unknown,
+  normalized: object | null,
+  toleratedMissingKeys: string[] = [],
+): boolean {
+  if (!isRecord(raw) || normalized === null) return true
+  const normalizedRecord = normalized as Record<string, unknown>
+  return (
+    Object.entries(normalizedRecord).some(
+      ([key, value]) =>
+        Object.hasOwn(raw, key) && raw[key] !== value ||
+        !Object.hasOwn(raw, key) && !toleratedMissingKeys.includes(key),
+    ) ||
+    Object.keys(raw).some((key) => !Object.hasOwn(normalizedRecord, key))
+  )
 }
 
 function getStorage(storage?: Pick<Storage, 'getItem' | 'setItem'>) {
@@ -258,7 +349,16 @@ export function loadWorkspace(
     !Array.isArray(rawIdeas) ||
     projects.length !== rawProjects.length ||
     tasks.length !== rawTasks.length ||
-    ideas.length !== safeIdeas.length
+    ideas.length !== safeIdeas.length ||
+    rawProjects.some((record, index) =>
+      recordNeedsRecovery(record, parsedProjects[index]),
+    ) ||
+    rawTasks.some((record, index) =>
+      recordNeedsRecovery(record, parsedTasks[index], ['dueDate', 'priority']),
+    ) ||
+    safeIdeas.some((record, index) =>
+      recordNeedsRecovery(record, parsedIdeas[index], ['description']),
+    )
 
   return {
     workspace: { projects, tasks, ideas },

@@ -2,7 +2,6 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   ArrowRight,
-  Bell,
   Check,
   CheckCheck,
   ChevronRight,
@@ -20,13 +19,28 @@ import {
 } from 'lucide-react'
 import './index.css'
 import {
+  formatTaskDueDate,
+  getLocalDate,
+  isProjectStatus,
+  isTaskOverdue,
+  isTaskPriority,
   loadWorkspace,
   saveWorkspace,
   type Idea,
   type Project,
   type Task,
+  type TaskPriority,
   type WorkspaceData,
 } from './lib/workspace'
+
+const todayLabel = new Date()
+  .toLocaleDateString('it-IT', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+  .toLocaleUpperCase('it-IT')
+
 function App() {
   const [loadResult] = useState(loadWorkspace)
   const [workspace, setWorkspace] = useState<WorkspaceData>(loadResult.workspace)
@@ -40,11 +54,27 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectCategory, setNewProjectCategory] = useState('Sviluppo web')
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
+  const [projectStatus, setProjectStatus] = useState<Project['status']>('In corso')
+  const [projectProgress, setProjectProgress] = useState(0)
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
+  const [projectStatusFilter, setProjectStatusFilter] = useState('Tutti')
+  const [projectSort, setProjectSort] = useState('Nome')
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskProjectId, setNewTaskProjectId] = useState(
+    () => loadResult.workspace.projects[0]?.id ?? '',
+  )
+  const [newTaskDueDate, setNewTaskDueDate] = useState(getLocalDate)
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('Media')
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editTaskTitle, setEditTaskTitle] = useState('')
   const [editTaskProjectId, setEditTaskProjectId] = useState('')
-  const [editTaskDue, setEditTaskDue] = useState('Oggi')
+  const [editTaskDueDate, setEditTaskDueDate] = useState('')
+  const [editTaskPriority, setEditTaskPriority] = useState<TaskPriority>('Media')
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null)
+  const [taskStatusFilter, setTaskStatusFilter] = useState('Tutte')
+  const [taskProjectFilter, setTaskProjectFilter] = useState('Tutti')
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState('Tutte')
   const [ideaTitle, setIdeaTitle] = useState('')
   const [ideaDescription, setIdeaDescription] = useState('')
   const [ideaSearch, setIdeaSearch] = useState('')
@@ -76,6 +106,7 @@ function App() {
       if (event.key === 'Escape') {
         setSearchOpen(false)
         setModalOpen(false)
+        setDeletingProjectId(null)
         setDeletingTaskId(null)
         setDeletingIdeaId(null)
       }
@@ -87,6 +118,7 @@ function App() {
     (project) => project.status === 'In corso',
   )
   const completedTasks = tasks.filter((task) => task.completed).length
+  const overdueTasks = tasks.filter((task) => isTaskOverdue(task)).length
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return projects.filter((project) => {
@@ -99,6 +131,18 @@ function App() {
       return matchesQuery && matchesPage
     })
   }, [projects, query, activePage])
+  const displayedProjects = useMemo(() => {
+    if (activePage !== 'Progetti') return filteredProjects
+    const matchingProjects = filteredProjects.filter(
+      (project) =>
+        projectStatusFilter === 'Tutti' || project.status === projectStatusFilter,
+    )
+    return matchingProjects.sort((first, second) =>
+      projectSort === 'Progressi'
+        ? second.progress - first.progress
+        : first.name.localeCompare(second.name, 'it'),
+    )
+  }, [filteredProjects, activePage, projectStatusFilter, projectSort])
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     return tasks.filter((task) => {
@@ -141,20 +185,30 @@ function App() {
   function startEditingTask(task: Task) {
     setEditingTaskId(task.id)
     setEditTaskTitle(task.title)
-    setEditTaskProjectId(task.projectId)
-    setEditTaskDue(task.due)
+    setEditTaskProjectId(
+      projects.some((project) => project.id === task.projectId)
+        ? task.projectId
+        : '',
+    )
+    setEditTaskDueDate(task.dueDate)
+    setEditTaskPriority(task.priority)
     setDeletingTaskId(null)
   }
   function cancelEditingTask() {
     setEditingTaskId(null)
     setEditTaskTitle('')
     setEditTaskProjectId('')
-    setEditTaskDue('Oggi')
+    setEditTaskDueDate('')
+    setEditTaskPriority('Media')
   }
   function saveEditedTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const title = editTaskTitle.trim()
-    if (!title || !editingTaskId) return
+    if (!title) {
+      setToast('Inserisci un titolo per l’attività.')
+      return
+    }
+    if (!editingTaskId) return
     setWorkspace((current) => ({
       ...current,
       tasks: current.tasks.map((task) =>
@@ -163,13 +217,40 @@ function App() {
               ...task,
               title,
               projectId: editTaskProjectId,
-              due: editTaskDue,
+              due: editTaskDueDate || 'Senza scadenza',
+              dueDate: editTaskDueDate,
+              priority: editTaskPriority,
             }
           : task,
       ),
     }))
     cancelEditingTask()
     setToast('Attività aggiornata.')
+  }
+  function createTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const title = newTaskTitle.trim()
+    if (!title) {
+      setToast('Inserisci un titolo per l’attività.')
+      return
+    }
+    const task: Task = {
+      id: crypto.randomUUID(),
+      title,
+      projectId: newTaskProjectId,
+      due: newTaskDueDate || 'Senza scadenza',
+      dueDate: newTaskDueDate,
+      priority: newTaskPriority,
+      completed: false,
+    }
+    setWorkspace((current) => ({
+      ...current,
+      tasks: [task, ...current.tasks],
+    }))
+    setNewTaskTitle('')
+    setNewTaskDueDate(getLocalDate())
+    setNewTaskPriority('Media')
+    setToast('Attività creata.')
   }
   function deleteTask(taskId: string) {
     setWorkspace((current) => ({
@@ -182,17 +263,59 @@ function App() {
     setDeletingTaskId(null)
     setToast('Attività eliminata.')
   }
+  function startCreatingProject() {
+    setEditingProjectId(null)
+    setNewProjectName('')
+    setNewProjectCategory('Sviluppo web')
+    setProjectStatus('In corso')
+    setProjectProgress(0)
+    setModalOpen(true)
+  }
+  function startEditingProject(project: Project) {
+    setEditingProjectId(project.id)
+    setNewProjectName(project.name)
+    setNewProjectCategory(project.category)
+    setProjectStatus(project.status)
+    setProjectProgress(project.progress)
+    setModalOpen(true)
+  }
+  function closeProjectModal() {
+    setModalOpen(false)
+    setEditingProjectId(null)
+  }
   function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = newProjectName.trim()
-    if (!name) return
+    if (!name) {
+      setToast('Inserisci un nome per il progetto.')
+      return
+    }
+    if (editingProjectId) {
+      setWorkspace((current) => ({
+        ...current,
+        projects: current.projects.map((project) =>
+          project.id === editingProjectId
+            ? {
+                ...project,
+                name,
+                category: newProjectCategory.trim() || 'Altro',
+                status: projectStatus,
+                progress: projectStatus === 'Completato' ? 100 : projectProgress,
+              }
+            : project,
+        ),
+      }))
+      closeProjectModal()
+      setToast(`Progetto "${name}" aggiornato.`)
+      return
+    }
     const project: Project = {
       id: crypto.randomUUID(),
       name,
       category: newProjectCategory,
-      progress: 0,
+      progress: projectStatus === 'Completato' ? 100 : projectProgress,
       color: 'purple',
-      status: 'In corso',
+      status: projectStatus,
     }
     setWorkspace((current) => ({
       ...current,
@@ -200,10 +323,26 @@ function App() {
     }))
     setNewProjectName('')
     setNewProjectCategory('Sviluppo web')
-    setModalOpen(false)
+    closeProjectModal()
     setActivePage('Progetti')
     setQuery('')
     setToast(`Progetto "${name}" creato.`)
+  }
+  function deleteProject(projectId: string) {
+    const remainingProjects = projects.filter((project) => project.id !== projectId)
+    setWorkspace((current) => ({
+      ...current,
+      projects: current.projects.filter((project) => project.id !== projectId),
+      tasks: current.tasks.map((task) =>
+        task.projectId === projectId ? { ...task, projectId: '' } : task,
+      ),
+    }))
+    if (newTaskProjectId === projectId) {
+      setNewTaskProjectId(remainingProjects[0]?.id ?? '')
+    }
+    if (editTaskProjectId === projectId) setEditTaskProjectId('')
+    setDeletingProjectId(null)
+    setToast('Progetto eliminato. Le attività collegate sono state conservate senza progetto.')
   }
   function resetIdeaForm() {
     setIdeaTitle('')
@@ -276,6 +415,19 @@ function App() {
     activePage === 'Attività' || activePage === 'Completati'
       ? filteredTasks
       : filteredTasks.filter((task) => !task.completed)
+  const displayedTasks = visibleTasks.filter((task) => {
+    if (activePage !== 'Attività') return true
+    const statusMatches =
+      taskStatusFilter === 'Tutte' ||
+      (taskStatusFilter === 'Da fare' && !task.completed) ||
+      (taskStatusFilter === 'Completate' && task.completed) ||
+      (taskStatusFilter === 'Scadute' && isTaskOverdue(task))
+    const projectMatches =
+      taskProjectFilter === 'Tutti' || task.projectId === taskProjectFilter
+    const priorityMatches =
+      taskPriorityFilter === 'Tutte' || task.priority === taskPriorityFilter
+    return statusMatches && projectMatches && priorityMatches
+  })
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -397,17 +549,9 @@ function App() {
               </button>
             )}
             <button
-              className="icon-button"
-              aria-label="Notifiche"
-              title="Notifiche"
-              onClick={() => setToast('Non hai nuove notifiche.')}
-            >
-              <Bell size={16} />
-            </button>
-            <button
               className="primary-button"
               aria-label="Nuovo progetto"
-              onClick={() => setModalOpen(true)}
+              onClick={startCreatingProject}
             >
               <Plus size={15} />
               <span>Nuovo progetto</span>
@@ -417,7 +561,7 @@ function App() {
         <div className="content">
           <section className="welcome-row">
             <div>
-              <div className="eyebrow">DOMENICA, 11 OTTOBRE</div>
+              <div className="eyebrow">{todayLabel}</div>
               <h1 className="page-title">
                 {activePage === 'Panoramica' ? (
                   <>
@@ -480,6 +624,26 @@ function App() {
                               style={{ width: `${project.progress}%` }}
                             />
                           </div>
+                        </div>
+                        <div className="project-actions">
+                          <button
+                            className="icon-button"
+                            type="button"
+                            aria-label={`Modifica progetto ${project.name}`}
+                            title="Modifica progetto"
+                            onClick={() => startEditingProject(project)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            aria-label={`Elimina progetto ${project.name}`}
+                            title="Elimina progetto"
+                            onClick={() => setDeletingProjectId(project.id)}
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -722,7 +886,9 @@ function App() {
                 {tasks.filter((task) => !task.completed).length}
               </div>
               <div className="stat-foot">
-                Il prossimo passo è il più importante
+                {overdueTasks === 0
+                  ? 'Nessuna attività scaduta'
+                  : `${overdueTasks} ${overdueTasks === 1 ? 'attività scaduta' : 'attività scadute'}`}
               </div>
             </article>
           </section>
@@ -743,8 +909,38 @@ function App() {
                   Vedi tutti <ArrowRight size={12} />
                 </button>
               </div>
+              {activePage === 'Progetti' && (
+                <div className="project-filters" aria-label="Filtri progetti">
+                  <label>
+                    <span>Stato</span>
+                    <select
+                      className="form-input"
+                      aria-label="Filtra progetti per stato"
+                      value={projectStatusFilter}
+                      onChange={(event) => setProjectStatusFilter(event.target.value)}
+                    >
+                      <option value="Tutti">Tutti gli stati</option>
+                      <option>In corso</option>
+                      <option>In pausa</option>
+                      <option>Completato</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Ordina per</span>
+                    <select
+                      className="form-input"
+                      aria-label="Ordina progetti"
+                      value={projectSort}
+                      onChange={(event) => setProjectSort(event.target.value)}
+                    >
+                      <option>Nome</option>
+                      <option>Progressi</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               <div className="project-list">
-                {filteredProjects.map((project) => {
+                {displayedProjects.length > 0 ? displayedProjects.map((project) => {
                   return (
                     <div className="project-row" key={project.id}>
                       <div className="project-symbol">
@@ -770,9 +966,33 @@ function App() {
                           />
                         </div>
                       </div>
+                      <div className="project-actions">
+                        <button
+                          className="icon-button"
+                          type="button"
+                          aria-label={`Modifica progetto ${project.name}`}
+                          title="Modifica progetto"
+                          onClick={() => startEditingProject(project)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          aria-label={`Elimina progetto ${project.name}`}
+                          title="Elimina progetto"
+                          onClick={() => setDeletingProjectId(project.id)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
                   )
-                })}
+                }) : (
+                  <div className="empty-state">
+                    Nessun progetto corrisponde ai filtri selezionati.
+                  </div>
+                )}
               </div>
             </article>
             <article className="panel task-panel">
@@ -791,9 +1011,131 @@ function App() {
                   Vedi tutte le attività <ArrowRight size={12} />
                 </button>
               </div>
+              {activePage === 'Attività' && (
+                <details className="task-create-disclosure">
+                  <summary>Aggiungi attività</summary>
+                  <form className="task-create-form" onSubmit={createTask}>
+                    <label className="form-label" htmlFor="new-task-title">
+                      Titolo attività
+                    </label>
+                    <input
+                      id="new-task-title"
+                      className="form-input"
+                      value={newTaskTitle}
+                      onChange={(event) => setNewTaskTitle(event.target.value)}
+                      maxLength={120}
+                      placeholder="Es. Preparare la prossima versione"
+                      required
+                    />
+                    <div className="task-create-fields">
+                      <label>
+                        <span className="form-label">Progetto</span>
+                        <select
+                          className="form-input"
+                          aria-label="Progetto nuova attività"
+                          value={newTaskProjectId}
+                          onChange={(event) => setNewTaskProjectId(event.target.value)}
+                        >
+                          <option value="">Senza progetto</option>
+                          {projects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span className="form-label">Scadenza</span>
+                        <input
+                          className="form-input"
+                          aria-label="Scadenza nuova attività"
+                          type="date"
+                          value={newTaskDueDate}
+                          onChange={(event) => setNewTaskDueDate(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        <span className="form-label">Priorità</span>
+                        <select
+                          className="form-input"
+                          aria-label="Priorità nuova attività"
+                          value={newTaskPriority}
+                          onChange={(event) =>
+                            setNewTaskPriority(
+                              isTaskPriority(event.target.value)
+                                ? event.target.value
+                                : 'Media',
+                            )
+                          }
+                        >
+                          <option>Bassa</option>
+                          <option>Media</option>
+                          <option>Alta</option>
+                          <option>Urgente</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="task-edit-actions">
+                      <button className="primary-button" type="submit">
+                        <Plus size={14} /> Crea attività
+                      </button>
+                    </div>
+                  </form>
+                </details>
+              )}
+              {activePage === 'Attività' && (
+                <div className="task-filters" aria-label="Filtri attività">
+                  <label>
+                    <span>Stato</span>
+                    <select
+                      className="form-input"
+                      aria-label="Filtra attività per stato"
+                      value={taskStatusFilter}
+                      onChange={(event) => setTaskStatusFilter(event.target.value)}
+                    >
+                      <option>Tutte</option>
+                      <option>Da fare</option>
+                      <option>Completate</option>
+                      <option>Scadute</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Progetto</span>
+                    <select
+                      className="form-input"
+                      aria-label="Filtra attività per progetto"
+                      value={taskProjectFilter}
+                      onChange={(event) => setTaskProjectFilter(event.target.value)}
+                    >
+                      <option value="Tutti">Tutti i progetti</option>
+                      <option value="">Senza progetto</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Priorità</span>
+                    <select
+                      className="form-input"
+                      aria-label="Filtra attività per priorità"
+                      value={taskPriorityFilter}
+                      onChange={(event) => setTaskPriorityFilter(event.target.value)}
+                    >
+                      <option>Tutte</option>
+                      <option>Bassa</option>
+                      <option>Media</option>
+                      <option>Alta</option>
+                      <option>Urgente</option>
+                    </select>
+                  </label>
+                </div>
+              )}
               <div className="task-list">
-                {visibleTasks.length > 0 ? (
-                  visibleTasks.map((task) => (
+                {displayedTasks.length > 0 ? (
+                  displayedTasks.map((task) => (
                     <div className="task-row" key={task.id}>
                       {editingTaskId === task.id ? (
                         <form
@@ -815,22 +1157,36 @@ function App() {
                             value={editTaskProjectId}
                             onChange={(event) => setEditTaskProjectId(event.target.value)}
                           >
+                            <option value="">Senza progetto</option>
                             {projects.map((project) => (
                               <option key={project.id} value={project.id}>
                                 {project.name}
                               </option>
                             ))}
                           </select>
-                          <select
+                          <input
                             className="form-input"
                             aria-label="Scadenza attività"
-                            value={editTaskDue}
-                            onChange={(event) => setEditTaskDue(event.target.value)}
+                            type="date"
+                            value={editTaskDueDate}
+                            onChange={(event) => setEditTaskDueDate(event.target.value)}
+                          />
+                          <select
+                            className="form-input"
+                            aria-label="Priorità attività"
+                            value={editTaskPriority}
+                            onChange={(event) =>
+                              setEditTaskPriority(
+                                isTaskPriority(event.target.value)
+                                  ? event.target.value
+                                  : 'Media',
+                              )
+                            }
                           >
-                            <option value="Oggi">Oggi</option>
-                            <option value="Domani">Domani</option>
-                            <option value="Questa settimana">Questa settimana</option>
-                            <option value="Senza scadenza">Senza scadenza</option>
+                            <option>Bassa</option>
+                            <option>Media</option>
+                            <option>Alta</option>
+                            <option>Urgente</option>
                           </select>
                           <div className="task-edit-actions">
                             <button className="primary-button" type="submit">
@@ -868,10 +1224,18 @@ function App() {
                             </div>
                             <div className="task-project">
                               {projects.find((item) => item.id === task.projectId)?.name ??
-                                'Progetto eliminato'}
+                                (task.projectId ? 'Progetto eliminato' : 'Senza progetto')}
                             </div>
+                            <span className={`task-priority priority-${task.priority.toLowerCase()}`}>
+                              {task.priority}
+                            </span>
                           </div>
-                          <div className="task-due">{task.due}</div>
+                          <div
+                            className={`task-due ${isTaskOverdue(task) ? 'overdue' : ''}`}
+                            title={task.dueDate || undefined}
+                          >
+                            {formatTaskDueDate(task.dueDate)}
+                          </div>
                           <div className="task-actions">
                             <button
                               type="button"
@@ -999,7 +1363,7 @@ function App() {
           className="modal-backdrop"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setModalOpen(false)
+              closeProjectModal()
             }
           }}
         >
@@ -1011,15 +1375,23 @@ function App() {
           >
             <div className="modal-header">
               <div>
-                <div className="eyebrow">NUOVO INIZIO</div>
-                <h2 id="modal-title">Crea un progetto</h2>
-                <p>Le idee prendono forma quando dai loro un nome.</p>
+                <div className="eyebrow">
+                  {editingProjectId ? 'AGGIORNA IL TUO SPAZIO' : 'NUOVO INIZIO'}
+                </div>
+                <h2 id="modal-title">
+                  {editingProjectId ? 'Modifica progetto' : 'Crea un progetto'}
+                </h2>
+                <p>
+                  {editingProjectId
+                    ? 'Aggiorna i dettagli e i progressi del progetto.'
+                    : 'Le idee prendono forma quando dai loro un nome.'}
+                </p>
               </div>
               <button
                 type="button"
                 className="icon-button"
                 aria-label="Chiudi"
-                onClick={() => setModalOpen(false)}
+                onClick={closeProjectModal}
               >
                 <X size={16} />
               </button>
@@ -1047,25 +1419,123 @@ function App() {
                 value={newProjectCategory}
                 onChange={(event) => setNewProjectCategory(event.target.value)}
               >
+                {editingProjectId &&
+                  ![
+                    'Sviluppo web',
+                    'Apprendimento',
+                    'Scripting',
+                    'Personale',
+                    'Altro',
+                  ].includes(newProjectCategory) && (
+                    <option value={newProjectCategory}>{newProjectCategory}</option>
+                  )}
                 <option>Sviluppo web</option>
                 <option>Apprendimento</option>
                 <option>Scripting</option>
                 <option>Personale</option>
                 <option>Altro</option>
               </select>
+              {editingProjectId && (
+                <>
+                  <label className="form-label" htmlFor="project-status">
+                    Stato
+                  </label>
+                  <select
+                    id="project-status"
+                    className="form-input"
+                    value={projectStatus}
+                    onChange={(event) => {
+                      if (!isProjectStatus(event.target.value)) return
+                      setProjectStatus(event.target.value)
+                      if (event.target.value === 'Completato') {
+                        setProjectProgress(100)
+                      }
+                    }}
+                  >
+                    <option>In corso</option>
+                    <option>In pausa</option>
+                    <option>Completato</option>
+                  </select>
+                  <label className="form-label" htmlFor="project-progress">
+                    Progresso: {projectProgress}%
+                  </label>
+                  <input
+                    id="project-progress"
+                    className="progress-input"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={projectProgress}
+                    onChange={(event) => setProjectProgress(Number(event.target.value))}
+                    disabled={projectStatus === 'Completato'}
+                  />
+                </>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => setModalOpen(false)}
+                  onClick={closeProjectModal}
                 >
                   Annulla
                 </button>
                 <button type="submit" className="primary-button">
-                  <Plus size={14} /> Crea progetto
+                  {editingProjectId ? <Check size={14} /> : <Plus size={14} />}
+                  {editingProjectId ? 'Salva modifiche' : 'Crea progetto'}
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+      {deletingProjectId && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDeletingProjectId(null)
+          }}
+        >
+          <section
+            className="modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+            aria-describedby="delete-project-description"
+          >
+            <div className="modal-header">
+              <div>
+                <div className="eyebrow">CONFERMA</div>
+                <h2 id="delete-project-title">Eliminare il progetto?</h2>
+                <p id="delete-project-description">
+                  Le attività collegate verranno conservate senza un progetto associato.
+                  Questa operazione non può essere annullata.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Chiudi dialog"
+                onClick={() => setDeletingProjectId(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setDeletingProjectId(null)}
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => deleteProject(deletingProjectId)}
+              >
+                Elimina progetto
+              </button>
+            </div>
           </section>
         </div>
       )}

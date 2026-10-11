@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   initialProjects,
+  formatTaskDueDate,
+  getLocalDate,
+  isTaskOverdue,
   loadWorkspace,
   saveWorkspace,
   storageKey,
@@ -52,9 +55,10 @@ describe('workspace persistence', () => {
     expect(result.recoveryData).toBeNull()
     expect(result.workspace).toMatchObject({
       projects: [{ id: 'legacy-project', name: 'Progetto legacy' }],
-      tasks: [{ id: 'legacy-task', due: 'Domani' }],
+      tasks: [{ id: 'legacy-task', due: 'Domani', priority: 'Media' }],
       ideas: [],
     })
+    expect(result.workspace.tasks[0].dueDate).toBe(getLocalDate(1))
   })
 
   it('keeps valid records and normalizes bad fields and entries', () => {
@@ -101,6 +105,8 @@ describe('workspace persistence', () => {
         title: 'Task valida',
         projectId: 'removed-project',
         due: 'Senza scadenza',
+        dueDate: '',
+        priority: 'Media',
         completed: false,
       },
     ])
@@ -196,5 +202,29 @@ describe('workspace persistence', () => {
 
     expect(result.ok).toBe(false)
     expect(result.error).toContain('Impossibile salvare')
+  })
+
+  it('formats local due dates and identifies only pending overdue tasks', () => {
+    const now = new Date(2026, 9, 11, 12)
+    const today = getLocalDate(0, now)
+    const yesterday = getLocalDate(-1, now)
+    const task = {
+      id: 't1',
+      title: 'Task',
+      projectId: '',
+      due: yesterday,
+      dueDate: yesterday,
+      priority: 'Media' as const,
+      completed: false,
+    }
+
+    expect(formatTaskDueDate(today, now)).toBe('Oggi')
+    expect(formatTaskDueDate(getLocalDate(1, now), now)).toBe('Domani')
+    expect(formatTaskDueDate('', now)).toBe('Senza scadenza')
+    expect(isTaskOverdue(task, now)).toBe(true)
+    expect(isTaskOverdue({ ...task, completed: true }, now)).toBe(false)
+    expect(
+      isTaskOverdue({ ...task, dueDate: getLocalDate(1, now) }, now),
+    ).toBe(false)
   })
 })

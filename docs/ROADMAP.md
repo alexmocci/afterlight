@@ -41,26 +41,31 @@ all 16 tests, lint, and production build passed.
 
 ### P1 — Complete core project and task workflows
 
-- [ ] Project editing, status/progress changes, and confirmed deletion.
-- [ ] Task creation, real local-calendar due dates, priority, and filtering.
-- [ ] Keep task-to-project relationships valid when projects are deleted.
-- [ ] Ensure statistics and empty states derive from real records.
+- [x] Project editing, status/progress changes, and confirmed deletion.
+- [x] Task creation, real local-calendar due dates, priority, and filtering.
+- [x] Keep task-to-project relationships valid when projects are deleted.
+- [x] Ensure statistics and empty states derive from real records.
 
 Acceptance: each change persists, destructive changes are confirmed, date behavior
 is tested against local calendar dates, and task/project relationships remain valid.
+Completed with task and project lifecycle controls, local-date conversion for legacy
+`Oggi`/`Domani` records, overdue indicators, and status/project/priority filters.
+All 22 tests, lint, and the production build pass.
 
 ### P1 — Improve navigation, dashboard, and accessibility
 
-- [ ] Make the date dynamic and localized.
-- [ ] Replace placeholder dashboard content with useful real-data summaries or label
+- [x] Make the date dynamic and localized.
+- [x] Replace placeholder dashboard content with useful real-data summaries or label
   demonstrative content clearly.
 - [ ] Define global-search scope to include projects, tasks, and ideas.
-- [ ] Remove misleading placeholder controls and expose actionable errors.
+- [x] Remove misleading placeholder controls and expose actionable errors.
 - [ ] Improve dialog keyboard/focus behavior, status announcements, and responsive
   search/form layout.
 
 Acceptance: primary actions have real outcomes; navigation/search behavior and
-keyboard-accessible dialogs are tested; mobile layout remains usable.
+keyboard-accessible dialogs are tested; mobile layout remains usable. The header
+date and overdue summaries are now data-derived, and the demo chart is labeled as
+illustrative. Focus handling for dialogs remains open.
 
 ### P2 — Local data portability
 
