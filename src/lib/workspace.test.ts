@@ -5,8 +5,11 @@ import {
   getLocalDate,
   isTaskOverdue,
   loadWorkspace,
+  parseWorkspaceImport,
   saveWorkspace,
+  serializeWorkspace,
   storageKey,
+  workspaceSchemaVersion,
   type WorkspaceData,
 } from './workspace'
 
@@ -226,5 +229,43 @@ describe('workspace persistence', () => {
     expect(
       isTaskOverdue({ ...task, dueDate: getLocalDate(1, now) }, now),
     ).toBe(false)
+  })
+
+  it('exports all records in a versioned JSON envelope and validates imports', () => {
+    const workspace: WorkspaceData = {
+      projects: [],
+      tasks: [],
+      ideas: [
+        {
+          id: 'i1',
+          title: 'Idea esportata',
+          description: 'Dettagli',
+          createdAt: '2026-10-01T10:00:00.000Z',
+        },
+      ],
+    }
+    const serialized = serializeWorkspace(workspace)
+    const envelope = JSON.parse(serialized)
+
+    expect(envelope.schemaVersion).toBe(workspaceSchemaVersion)
+    expect(envelope.workspace).toEqual(workspace)
+    expect(parseWorkspaceImport(serialized)).toEqual({
+      workspace,
+      error: null,
+    })
+  })
+
+  it('rejects unsupported versions and malformed workspaces before import', () => {
+    expect(
+      parseWorkspaceImport(JSON.stringify({ schemaVersion: 99, workspace: {} })).error,
+    ).toContain('versione 1')
+    expect(
+      parseWorkspaceImport(
+        JSON.stringify({
+          schemaVersion: workspaceSchemaVersion,
+          workspace: { projects: [{ id: 'bad' }], tasks: [], ideas: [] },
+        }),
+      ).error,
+    ).toContain('dati non validi')
   })
 })

@@ -43,7 +43,13 @@ export type WorkspaceSaveResult = {
   error: string | null
 }
 
+export type WorkspaceImportResult = {
+  workspace: WorkspaceData | null
+  error: string | null
+}
+
 export const storageKey = 'afterlight-workspace-v1'
+export const workspaceSchemaVersion = 1
 const recoveryKeyPrefix = `${storageKey}-recovery-`
 
 export const initialProjects: Project[] = [
@@ -407,4 +413,46 @@ export function saveWorkspace(
       error: 'Impossibile salvare il workspace nella memoria locale del browser.',
     }
   }
+}
+
+export function serializeWorkspace(workspace: WorkspaceData): string {
+  return JSON.stringify({
+    schemaVersion: workspaceSchemaVersion,
+    exportedAt: new Date().toISOString(),
+    workspace,
+  })
+}
+
+export function parseWorkspaceImport(rawData: string): WorkspaceImportResult {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawData)
+  } catch {
+    return { workspace: null, error: 'Il file non contiene un JSON valido.' }
+  }
+
+  if (
+    !isRecord(parsed) ||
+    parsed.schemaVersion !== workspaceSchemaVersion ||
+    !isRecord(parsed.workspace)
+  ) {
+    return {
+      workspace: null,
+      error: `Formato di esportazione non supportato. È richiesta la versione ${workspaceSchemaVersion}.`,
+    }
+  }
+
+  const serializedWorkspace = JSON.stringify(parsed.workspace)
+  const result = loadWorkspace({
+    getItem: () => serializedWorkspace,
+    setItem: () => undefined,
+  })
+  if (result.warning || result.recoveryData !== null) {
+    return {
+      workspace: null,
+      error: 'Il workspace nel file contiene dati non validi o incompleti.',
+    }
+  }
+
+  return { workspace: result.workspace, error: null }
 }

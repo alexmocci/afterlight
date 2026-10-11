@@ -1,10 +1,21 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type MouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   Activity,
   ArrowRight,
   Check,
   CheckCheck,
   ChevronRight,
+  Database,
+  Download,
+  FileUp,
   FolderKanban,
   LayoutDashboard,
   Lightbulb,
@@ -25,7 +36,9 @@ import {
   isTaskOverdue,
   isTaskPriority,
   loadWorkspace,
+  parseWorkspaceImport,
   saveWorkspace,
+  serializeWorkspace,
   type Idea,
   type Project,
   type Task,
@@ -80,6 +93,10 @@ function App() {
   const [ideaSearch, setIdeaSearch] = useState('')
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null)
   const [deletingIdeaId, setDeletingIdeaId] = useState<string | null>(null)
+  const dialogReturnFocus = useRef<HTMLElement | null>(null)
+  const importFileInput = useRef<HTMLInputElement>(null)
+  const [importCandidate, setImportCandidate] = useState<WorkspaceData | null>(null)
+  const [importError, setImportError] = useState('')
 
   const { projects, tasks, ideas } = workspace
   useEffect(() => {
@@ -114,6 +131,53 @@ function App() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
+  useEffect(() => {
+    if (!modalOpen && !deletingProjectId && !deletingTaskId && !deletingIdeaId) {
+      return
+    }
+
+    const dialog = document.querySelector<HTMLElement>(
+      '[role="dialog"], [role="alertdialog"]',
+    )
+    if (!dialog) return
+
+    const focusableSelector =
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(focusableSelector),
+    )
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const initialFocus =
+      dialog.querySelector<HTMLElement>('[autofocus]') ??
+      dialog.querySelector<HTMLElement>('.modal-actions .secondary-button') ??
+      focusable[0]
+    initialFocus?.focus()
+
+    function trapFocus(event: KeyboardEvent) {
+      if (event.key !== 'Tab' || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', trapFocus)
+    return () => {
+      document.removeEventListener('keydown', trapFocus)
+      const returnTarget = dialogReturnFocus.current ?? previousFocus
+      dialogReturnFocus.current = null
+      if (returnTarget?.isConnected) returnTarget.focus()
+    }
+  }, [modalOpen, deletingProjectId, deletingTaskId, deletingIdeaId])
+  function rememberDialogTrigger(event: MouseEvent<HTMLButtonElement>) {
+    dialogReturnFocus.current = event.currentTarget
+  }
   const activeProjects = projects.filter(
     (project) => project.status === 'In corso',
   )
@@ -159,15 +223,18 @@ function App() {
   }, [tasks, projects, query, activePage])
 
   const filteredIdeas = useMemo(() => {
-    const normalizedQuery = ideaSearch.trim().toLowerCase()
-    if (!normalizedQuery) return ideas
+    const searchTerms = [ideaSearch, query]
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+    if (searchTerms.length === 0) return ideas
 
     return ideas.filter(
-      (idea) =>
-        idea.title.toLowerCase().includes(normalizedQuery) ||
-        idea.description.toLowerCase().includes(normalizedQuery),
+      (idea) => {
+        const searchableText = `${idea.title} ${idea.description}`.toLowerCase()
+        return searchTerms.every((term) => searchableText.includes(term))
+      },
     )
-  }, [ideas, ideaSearch])
+  }, [ideas, ideaSearch, query])
 
   function showPage(page: string) {
     setActivePage(page)
@@ -403,6 +470,78 @@ function App() {
     setDeletingIdeaId(null)
     setToast('Idea eliminata.')
   }
+  function exportWorkspace() {
+    let downloadUrl: string | null = null
+    try {
+      const file = new Blob([serializeWorkspace(workspace)], {
+        type: 'application/json',
+      })
+      const objectUrl = URL.createObjectURL(file)
+      downloadUrl = objectUrl
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = `afterlight-workspace-${getLocalDate()}.json`
+      document.body.append(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+      setToast('Workspace esportato.')
+    } catch {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl)
+      setImportError('Impossibile creare il file di esportazione.')
+    }
+  }
+  function readImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0]
+    event.currentTarget.value = ''
+    if (!file) return
+    setImportError('')
+    setImportCandidate(null)
+    if (file.size > 10 * 1024 * 1024) {
+      setImportError('Il file supera il limite massimo di 10 MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onerror = () => {
+      setImportError('Impossibile leggere il file selezionato.')
+    }
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        setImportError('Il file selezionato non contiene testo leggibile.')
+        return
+      }
+      const result = parseWorkspaceImport(reader.result)
+      if (result.error || !result.workspace) {
+        setImportError(result.error ?? 'Il workspace nel file non è valido.')
+        return
+      }
+      setImportCandidate(result.workspace)
+    }
+    try {
+      reader.readAsText(file)
+    } catch {
+      setImportError('Impossibile leggere il file selezionato.')
+    }
+  }
+  function confirmImport() {
+    if (!importCandidate) return
+    const result = saveWorkspace(importCandidate, recoveryData.current)
+    if (!result.ok) {
+      setStorageMessage(result.error)
+      setImportError(result.error ?? 'Impossibile salvare il workspace importato.')
+      return
+    }
+    recoveryData.current = null
+    initialWorkspace.current = importCandidate
+    setWorkspace(importCandidate)
+    setNewTaskProjectId(importCandidate.projects[0]?.id ?? '')
+    cancelEditingTask()
+    resetIdeaForm()
+    setStorageMessage(null)
+    setImportCandidate(null)
+    setImportError('')
+    setToast('Workspace importato.')
+  }
 
   const pageDescription: Record<string, string> = {
     Panoramica: 'Uno spazio tutto tuo, per dare forma alle idee.',
@@ -410,6 +549,7 @@ function App() {
     Attività: 'Piccoli passi, progressi concreti.',
     Completati: 'Guarda quanta strada hai già fatto.',
     Idee: 'Ogni grande progetto comincia da un pensiero.',
+    Dati: 'Esporta o ripristina una copia del tuo workspace.',
   }
   const visibleTasks =
     activePage === 'Attività' || activePage === 'Completati'
@@ -482,6 +622,13 @@ function App() {
             Idee
             <span className="nav-count">{ideas.length}</span>
           </button>
+          <button
+            className={`nav-item ${activePage === 'Dati' ? 'active' : ''}`}
+            onClick={() => showPage('Dati')}
+          >
+            <Database size={16} />
+            Dati
+          </button>
         </nav>
         <div className="sidebar-bottom">
           <div className="focus-card">
@@ -522,7 +669,7 @@ function App() {
                 <Search size={15} />
                 <input
                   autoFocus
-                  aria-label="Cerca progetti e attività"
+                  aria-label="Cerca progetti, attività e idee"
                   placeholder="Cerca..."
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -551,7 +698,10 @@ function App() {
             <button
               className="primary-button"
               aria-label="Nuovo progetto"
-              onClick={startCreatingProject}
+              onClick={(event) => {
+                rememberDialogTrigger(event)
+                startCreatingProject()
+              }}
             >
               <Plus size={15} />
               <span>Nuovo progetto</span>
@@ -631,7 +781,10 @@ function App() {
                             type="button"
                             aria-label={`Modifica progetto ${project.name}`}
                             title="Modifica progetto"
-                            onClick={() => startEditingProject(project)}
+                            onClick={(event) => {
+                              rememberDialogTrigger(event)
+                              startEditingProject(project)
+                            }}
                           >
                             <Pencil size={14} />
                           </button>
@@ -640,7 +793,10 @@ function App() {
                             type="button"
                             aria-label={`Elimina progetto ${project.name}`}
                             title="Elimina progetto"
-                            onClick={() => setDeletingProjectId(project.id)}
+                            onClick={(event) => {
+                              rememberDialogTrigger(event)
+                              setDeletingProjectId(project.id)
+                            }}
                           >
                             <X size={14} />
                           </button>
@@ -788,7 +944,10 @@ function App() {
                             type="button"
                             aria-label={`Elimina ${idea.title}`}
                             title="Elimina idea"
-                            onClick={() => setDeletingIdeaId(idea.id)}
+                            onClick={(event) => {
+                              rememberDialogTrigger(event)
+                              setDeletingIdeaId(idea.id)
+                            }}
                           >
                             <X size={14} />
                           </button>
@@ -817,6 +976,108 @@ function App() {
                           Cancella ricerca
                         </button>
                       )}
+                    </div>
+                  )}
+                </div>
+              </article>
+            </section>
+          ) : activePage === 'Dati' ? (
+            <section className="data-page" aria-label="Gestione dati workspace">
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h2 className="panel-title">Esporta workspace</h2>
+                    <p className="panel-subtitle">
+                      Scarica una copia locale di progetti, attività e idee.
+                    </p>
+                  </div>
+                  <div className="stat-icon">
+                    <Download size={16} />
+                  </div>
+                </div>
+                <div className="data-panel-content">
+                  <p>
+                    Il file JSON include {projects.length} progetti, {tasks.length}{' '}
+                    attività e {ideas.length} idee, insieme alla versione del formato.
+                    I dati non vengono inviati a un server.
+                  </p>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={exportWorkspace}
+                  >
+                    <Download size={14} /> Esporta JSON
+                  </button>
+                </div>
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h2 className="panel-title">Importa workspace</h2>
+                    <p className="panel-subtitle">
+                      Controlla una copia JSON prima di sostituire i dati attuali.
+                    </p>
+                  </div>
+                  <div className="stat-icon">
+                    <FileUp size={16} />
+                  </div>
+                </div>
+                <div className="data-panel-content">
+                  <input
+                    ref={importFileInput}
+                    className="visually-hidden"
+                    type="file"
+                    accept="application/json,.json"
+                    aria-label="Seleziona file workspace JSON"
+                    onChange={readImportFile}
+                  />
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => importFileInput.current?.click()}
+                  >
+                    <FileUp size={14} /> Seleziona file JSON
+                  </button>
+                  {importError && (
+                    <p className="data-error" role="alert">
+                      {importError}
+                    </p>
+                  )}
+                  {importCandidate && (
+                    <div
+                      className="import-preview"
+                      role="region"
+                      aria-label="Anteprima workspace da importare"
+                    >
+                      <h3>Anteprima della copia</h3>
+                      <p>
+                        {importCandidate.projects.length}{' '}
+                        {importCandidate.projects.length === 1 ? 'progetto' : 'progetti'},{' '}
+                        {importCandidate.tasks.length} attività e{' '}
+                        {importCandidate.ideas.length}{' '}
+                        {importCandidate.ideas.length === 1 ? 'idea' : 'idee'}.
+                      </p>
+                      <p className="data-warning">
+                        La conferma sostituirà il workspace attuale. L’azione non può
+                        essere annullata.
+                      </p>
+                      <div className="idea-form-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => setImportCandidate(null)}
+                        >
+                          Annulla
+                        </button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={confirmImport}
+                        >
+                          Importa e sostituisci
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -972,7 +1233,10 @@ function App() {
                           type="button"
                           aria-label={`Modifica progetto ${project.name}`}
                           title="Modifica progetto"
-                          onClick={() => startEditingProject(project)}
+                          onClick={(event) => {
+                            rememberDialogTrigger(event)
+                            startEditingProject(project)
+                          }}
                         >
                           <Pencil size={14} />
                         </button>
@@ -981,7 +1245,10 @@ function App() {
                           type="button"
                           aria-label={`Elimina progetto ${project.name}`}
                           title="Elimina progetto"
-                          onClick={() => setDeletingProjectId(project.id)}
+                          onClick={(event) => {
+                            rememberDialogTrigger(event)
+                            setDeletingProjectId(project.id)
+                          }}
                         >
                           <X size={14} />
                         </button>
@@ -1251,7 +1518,10 @@ function App() {
                               className="icon-button"
                               aria-label={`Elimina ${task.title}`}
                               title="Elimina attività"
-                              onClick={() => setDeletingTaskId(task.id)}
+                              onClick={(event) => {
+                                rememberDialogTrigger(event)
+                                setDeletingTaskId(task.id)
+                              }}
                             >
                               <X size={14} />
                             </button>
@@ -1270,6 +1540,52 @@ function App() {
               </div>
             </article>
           </section>
+          {query.trim() && activePage !== 'Idee' && activePage !== 'Dati' && (
+            <section className="panel global-idea-results" aria-label="Risultati idee">
+              <div className="panel-header">
+                <div>
+                  <h2 className="panel-title">Idee corrispondenti</h2>
+                  <p className="panel-subtitle">
+                    {filteredIdeas.length === 0
+                      ? 'Nessuna idea corrisponde alla ricerca.'
+                      : `${filteredIdeas.length} ${filteredIdeas.length === 1 ? 'idea trovata' : 'idee trovate'}`}
+                  </p>
+                </div>
+                <div className="stat-icon">
+                  <Lightbulb size={16} />
+                </div>
+              </div>
+              {filteredIdeas.length > 0 && (
+                <div className="idea-list">
+                  {filteredIdeas.map((idea) => (
+                    <div className="idea-row" key={idea.id}>
+                      <div className="project-symbol idea-symbol">
+                        <Lightbulb size={16} />
+                      </div>
+                      <div className="idea-info">
+                        <h3 className="project-name">{idea.title}</h3>
+                        <div className="idea-description">
+                          {idea.description || 'Nessuna descrizione aggiunta.'}
+                        </div>
+                      </div>
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => {
+                          setIdeaSearch(query.trim())
+                          setActivePage('Idee')
+                          setQuery('')
+                          setSearchOpen(false)
+                        }}
+                      >
+                        Apri idee <ArrowRight size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
           <section className="lower-grid">
             <article className="panel">
               <div className="panel-header">

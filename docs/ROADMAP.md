@@ -57,35 +57,39 @@ All 22 tests, lint, and the production build pass.
 - [x] Make the date dynamic and localized.
 - [x] Replace placeholder dashboard content with useful real-data summaries or label
   demonstrative content clearly.
-- [ ] Define global-search scope to include projects, tasks, and ideas.
+- [x] Define global-search scope to include projects, tasks, and ideas.
 - [x] Remove misleading placeholder controls and expose actionable errors.
-- [ ] Improve dialog keyboard/focus behavior, status announcements, and responsive
+- [x] Improve dialog keyboard/focus behavior, status announcements, and responsive
   search/form layout.
 
 Acceptance: primary actions have real outcomes; navigation/search behavior and
 keyboard-accessible dialogs are tested; mobile layout remains usable. The header
 date and overdue summaries are now data-derived, and the demo chart is labeled as
-illustrative. Focus handling for dialogs remains open.
+illustrative. Dialogs now trap and restore focus; global search includes matching
+ideas, and the search/form layout adapts to narrow screens.
 
 ### P2 — Local data portability
 
-- [ ] Export all workspace records as a versioned JSON file.
-- [ ] Validate imports before asking for confirmation and never replace existing data
+- [x] Export all workspace records as a versioned JSON file.
+- [x] Validate imports before asking for confirmation and never replace existing data
   on an invalid file or cancelled import.
 
 Acceptance: export includes every persisted entity and import replacement is
-explicit, validated, and covered by tests.
+explicit, validated, and covered by tests. Completed in the local data-portability
+increment; invalid files and cancelled imports leave the current workspace intact.
 
 ### P2 — Documentation and CI
 
-- [ ] Replace the starter README with accurate setup, usage, storage, limitations,
+- [x] Replace the starter README with accurate setup, usage, storage, limitations,
   tests, and GitHub Pages information.
-- [ ] Add lint to deployment checks if compatible with the existing workflow.
-- [ ] Keep the existing Pages base path and official artifact/deploy actions.
+- [x] Add lint to deployment checks if compatible with the existing workflow.
+- [x] Keep the existing Pages base path and official artifact/deploy actions.
 - [ ] Verify GitHub Actions/deployment remotely when repository access allows it.
 
 Acceptance: documented commands match `package.json`, all configured checks pass,
-and the Pages workflow still builds the correct `/afterlight/` site.
+and the Pages workflow still builds the correct `/afterlight/` site. Local tests,
+lint, and production build pass (28 tests); remote deployment verification remains
+pending.
 
 ## Delivery notes
 

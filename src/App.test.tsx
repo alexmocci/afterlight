@@ -2,7 +2,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import App from './App'
-import { getLocalDate, storageKey } from './lib/workspace'
+import {
+  getLocalDate,
+  serializeWorkspace,
+  storageKey,
+  type WorkspaceData,
+} from './lib/workspace'
 
 describe('Afterlight dashboard', () => {
   beforeEach(() => {
@@ -76,7 +81,7 @@ describe('Afterlight dashboard', () => {
 
   fireEvent.change(
     screen.getByRole('textbox', {
-      name: 'Cerca progetti e attività',
+      name: 'Cerca progetti, attività e idee',
     }),
     { target: { value: 'Python' } },
   )
@@ -353,6 +358,29 @@ it('conferma la cancellazione del progetto e conserva le attività scollegate', 
   )
 })
 
+it('gestisce focus e chiusura da tastiera nel dialog di conferma', () => {
+  render(<App />)
+  const trigger = screen.getByRole('button', {
+    name: 'Elimina progetto Portfolio personale',
+  })
+  fireEvent.click(trigger)
+
+  const dialog = screen.getByRole('alertdialog')
+  const cancelButton = screen.getByRole('button', { name: 'Annulla' })
+  const closeButton = screen.getByRole('button', { name: 'Chiudi dialog' })
+  const confirmButton = screen.getByRole('button', { name: 'Elimina progetto' })
+  expect(cancelButton).toHaveFocus()
+
+  confirmButton.focus()
+  fireEvent.keyDown(confirmButton, { key: 'Tab' })
+  expect(closeButton).toHaveFocus()
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(trigger).toHaveFocus()
+  expect(dialog).not.toBeInTheDocument()
+})
+
 it('filtra le attività per stato, progetto e priorità', () => {
   localStorage.setItem(
     storageKey,
@@ -428,5 +456,137 @@ it('filtra le attività per stato, progetto e priorità', () => {
   expect(screen.queryByText('Attività urgente scaduta')).not.toBeInTheDocument()
 })
 
+it('mostra l’anteprima di importazione e sostituisce i dati solo dopo la conferma', async () => {
+  const currentWorkspace = {
+    projects: [
+      {
+        id: 'current',
+        name: 'Workspace attuale',
+        category: 'Personale',
+        progress: 10,
+        color: 'purple',
+        status: 'In corso',
+      },
+    ],
+    tasks: [],
+    ideas: [],
+  }
+  localStorage.setItem(storageKey, JSON.stringify(currentWorkspace))
+  const existingData = localStorage.getItem(storageKey)
+  const importedWorkspace: WorkspaceData = {
+    projects: [
+      {
+        id: 'imported',
+        name: 'Workspace importato',
+        category: 'Scripting',
+        progress: 40,
+        color: 'blue',
+        status: 'In corso',
+      },
+    ],
+    tasks: [],
+    ideas: [],
+  }
+  const file = new File(
+    [serializeWorkspace(importedWorkspace)],
+    'afterlight-backup.json',
+    { type: 'application/json' },
+  )
+
+  render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: 'Dati' }))
+  fireEvent.change(screen.getByLabelText('Seleziona file workspace JSON'), {
+    target: { files: [file] },
+  })
+
+  const preview = await screen.findByRole('region', {
+    name: 'Anteprima workspace da importare',
+  })
+  expect(preview).toHaveTextContent('1 progetto')
+  expect(localStorage.getItem(storageKey)).toBe(existingData)
+
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Importa e sostituisci' }),
+  )
+  expect(
+    JSON.parse(localStorage.getItem(storageKey)!).projects[0].name,
+  ).toBe('Workspace importato')
+})
+
+it('non modifica i dati correnti con un file non valido o un import annullato', async () => {
+  const currentWorkspace = {
+    projects: [],
+    tasks: [],
+    ideas: [],
+  }
+  localStorage.setItem(storageKey, JSON.stringify(currentWorkspace))
+  const originalData = localStorage.getItem(storageKey)
+  render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: 'Dati' }))
+  const fileInput = screen.getByLabelText('Seleziona file workspace JSON')
+
+  fireEvent.change(fileInput, {
+    target: { files: [new File(['non json'], 'broken.json')] },
+  })
+  expect(await screen.findByRole('alert')).toHaveTextContent('JSON valido')
+  expect(localStorage.getItem(storageKey)).toBe(originalData)
+
+  const candidate: WorkspaceData = {
+    projects: [],
+    tasks: [],
+    ideas: [
+      {
+        id: 'candidate',
+        title: 'Idea non importata',
+        description: '',
+        createdAt: '2026-10-01T10:00:00.000Z',
+      },
+    ],
+  }
+  fireEvent.change(fileInput, {
+    target: { files: [new File([serializeWorkspace(candidate)], 'valid.json')] },
+  })
+  expect(
+    await screen.findByRole('region', { name: 'Anteprima workspace da importare' }),
+  ).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Annulla' }))
+
+  expect(localStorage.getItem(storageKey)).toBe(originalData)
+  expect(screen.queryByText('Idea non importata')).not.toBeInTheDocument()
+})
+
+it('include le idee nei risultati della ricerca globale', () => {
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      projects: [],
+      tasks: [],
+      ideas: [
+        {
+          id: 'idea-search',
+          title: 'App per leggere',
+          description: 'Un diario di lettura personale.',
+          createdAt: '2026-10-01T10:00:00.000Z',
+        },
+      ],
+    }),
+  )
+  render(<App />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Apri ricerca' }))
+  fireEvent.change(
+    screen.getByRole('textbox', {
+      name: 'Cerca progetti, attività e idee',
+    }),
+    { target: { value: 'diario di lettura' } },
+  )
+
+  expect(screen.getByRole('region', { name: 'Risultati idee' })).toHaveTextContent(
+    'App per leggere',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Apri idee' }))
+  expect(screen.getByRole('heading', { level: 1, name: 'Idee' })).toBeInTheDocument()
+  expect(screen.getByText('App per leggere')).toBeInTheDocument()
+})
 
 })

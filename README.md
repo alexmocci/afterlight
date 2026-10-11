@@ -1,32 +1,56 @@
-# React + TypeScript + Vite
+# Afterlight
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Afterlight is a personal workspace for organizing projects, tasks, and ideas. It
+runs in the browser and keeps the workspace on the device, with JSON backup and
+restore.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Track projects by status and progress; create, edit, and remove projects.
+- Create and manage tasks with due dates, priorities, completion status, and
+  project filters.
+- Save, search, edit, and remove ideas.
+- Search projects, tasks, and ideas from the global search.
+- Review overdue tasks and workspace summaries.
+- Export a versioned JSON backup and validate an import before replacing data.
 
-## React Compiler
+## Requirements
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- Node.js 22 or newer
+- npm
 
-## Expanding the Oxlint configuration
+## Development
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The development server prints its local URL when it is ready.
+
+## Checks
+
+```sh
+npm test -- --run
+npm run lint
+npm run build
+```
+
+`npm run build` runs the TypeScript project checks and creates the production
+site in `dist/`.
+
+## Data and privacy
+
+The workspace is stored in browser `localStorage` under
+`afterlight-workspace-v1`. It is not synchronized to a server. Clearing browser
+storage or using another browser/device can remove or hide the workspace, so
+export a JSON backup regularly. Imports are validated locally and replace the
+current workspace only after explicit confirmation. When malformed saved data
+is repaired after a user edit, Afterlight preserves the original in a separate
+local recovery entry first.
+
+## Deployment
+
+The `main` branch is deployed to GitHub Pages by
+[`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml). The Vite
+configuration uses `/afterlight/` as its base path for the project site.
