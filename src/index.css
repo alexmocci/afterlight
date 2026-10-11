@@ -477,13 +477,45 @@ button:disabled {
   white-space: nowrap;
 }
 
-.project-list {
+.ideas-page {
+  display: grid;
+  gap: 18px;
+}
+
+.idea-form {
+  display: grid;
+  gap: 10px;
+  padding: 0 20px 20px;
+}
+
+.idea-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.idea-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.idea-search-field {
+  width: min(240px, 100%);
+  min-width: 200px;
+}
+
+.project-list,
+.idea-list {
   display: grid;
   gap: 0;
   padding: 0 20px;
 }
 
-.project-row {
+.project-row,
+.idea-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -503,18 +535,28 @@ button:disabled {
   color: #c4b5fd;
 }
 
-.project-info {
+.project-info,
+.idea-info {
   flex: 1;
   min-width: 0;
 }
 
 .project-name {
+  margin: 0;
   overflow: hidden;
   color: #efedf6;
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.idea-description {
+  margin-top: 5px;
+  color: #b7b5c3;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .project-meta {
@@ -524,6 +566,37 @@ button:disabled {
   margin-top: 6px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.idea-row .task-actions {
+  margin-top: 0;
+}
+
+.idea-empty-state {
+  padding: 30px 20px 24px;
+  text-align: center;
+}
+
+.idea-empty-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: #a78bfa13;
+  color: #c4b5fd;
+}
+
+.idea-empty-state h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.idea-empty-state p {
+  max-width: 420px;
+  margin: 0 auto;
+  line-height: 1.6;
 }
 
 .project-progress {
@@ -1046,5 +1119,85 @@ button:disabled {
 
   .modal {
     padding: 20px;
+  }
+}
+
+/* Azioni delle attività */
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  margin-top: -8px;
+}
+
+.task-actions .icon-button {
+  width: 29px;
+  height: 29px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.task-actions .icon-button:hover {
+  border-color: var(--border);
+  background: #ffffff0c;
+  color: #c4b5fd;
+}
+
+/* Modifica attività */
+.task-edit-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.task-edit-form input,
+.task-edit-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0d0c13;
+  color: #f5f3ff;
+  font: inherit;
+  font-size: 12px;
+}
+
+.task-edit-form input:focus,
+.task-edit-form select:focus {
+  border-color: #a78bfa99;
+  outline: 2px solid #a78bfa33;
+  outline-offset: 1px;
+}
+
+.task-edit-form select option {
+  background: #14131b;
+  color: #f5f3ff;
+}
+
+.task-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+@media (min-width: 701px) {
+  .task-edit-form {
+    grid-template-columns: minmax(0, 1.5fr) minmax(120px, 1fr);
+  }
+
+  .task-edit-form input {
+    grid-column: 1 / -1;
+  }
+
+  .task-edit-actions {
+    grid-column: 1 / -1;
   }
 }

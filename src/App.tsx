@@ -1,4 +1,3 @@
-
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   Activity,
@@ -7,11 +6,11 @@ import {
   Check,
   CheckCheck,
   ChevronRight,
-  Command,
   FolderKanban,
   LayoutDashboard,
   Lightbulb,
   ListTodo,
+  Pencil,
   Plus,
   Search,
   Sparkles,
@@ -19,9 +18,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react'
-
 import './index.css'
-
 type Project = {
   id: string
   name: string
@@ -30,7 +27,6 @@ type Project = {
   color: string
   status: 'In corso' | 'In pausa' | 'Completato'
 }
-
 type Task = {
   id: string
   title: string
@@ -38,7 +34,12 @@ type Task = {
   due: string
   completed: boolean
 }
-
+type Idea = {
+  id: string
+  title: string
+  description: string
+  createdAt: string
+}
 const initialProjects: Project[] = [
   {
     id: 'p1',
@@ -65,7 +66,6 @@ const initialProjects: Project[] = [
     status: 'In corso',
   },
 ]
-
 const initialTasks: Task[] = [
   {
     id: 't1',
@@ -96,21 +96,17 @@ const initialTasks: Task[] = [
     completed: false,
   },
 ]
-
 const storageKey = 'afterlight-workspace-v1'
-
 type WorkspaceData = {
   projects: Project[]
   tasks: Task[]
+  ideas: Idea[]
 }
-
 function loadWorkspace(): WorkspaceData {
   try {
     const saved = localStorage.getItem(storageKey)
-
     if (saved) {
       const parsed: unknown = JSON.parse(saved)
-
       if (
         typeof parsed === 'object' &&
         parsed !== null &&
@@ -119,19 +115,28 @@ function loadWorkspace(): WorkspaceData {
         Array.isArray(parsed.projects) &&
         Array.isArray(parsed.tasks)
       ) {
-        return parsed as WorkspaceData
+        const data = parsed as {
+          projects: Project[]
+          tasks: Task[]
+          ideas?: Idea[]
+        }
+        // Migrazione compatibile: i workspace precedenti non avevano ancora le idee.
+        return {
+          projects: data.projects,
+          tasks: data.tasks,
+          ideas: Array.isArray(data.ideas) ? data.ideas : [],
+        }
       }
     }
   } catch {
     // Se i dati salvati non sono leggibili, usiamo i dati iniziali.
   }
-
   return {
     projects: initialProjects,
     tasks: initialTasks,
+    ideas: [],
   }
 }
-
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceData>(loadWorkspace)
   const [activePage, setActivePage] = useState('Panoramica')
@@ -141,105 +146,149 @@ function App() {
   const [modalOpen, setModalOpen] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectCategory, setNewProjectCategory] = useState('Sviluppo web')
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editTaskTitle, setEditTaskTitle] = useState('')
+  const [editTaskProjectId, setEditTaskProjectId] = useState('')
+  const [editTaskDue, setEditTaskDue] = useState('Oggi')
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null)
+  const [ideaTitle, setIdeaTitle] = useState('')
+  const [ideaDescription, setIdeaDescription] = useState('')
+  const [ideaSearch, setIdeaSearch] = useState('')
+  const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null)
+  const [deletingIdeaId, setDeletingIdeaId] = useState<string | null>(null)
 
-  const { projects, tasks } = workspace
-
+  const { projects, tasks, ideas } = workspace
   useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(workspace))
     } catch {
-      setToast('Salvataggio locale non disponibile in questo browser.')
+      console.error('Salvataggio locale non disponibile in questo browser.')
     }
   }, [workspace])
-
   useEffect(() => {
     if (!toast) return
-
     const timeout = window.setTimeout(() => setToast(''), 3000)
     return () => window.clearTimeout(timeout)
   }, [toast])
-
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setSearchOpen(true)
       }
-
       if (event.key === 'Escape') {
         setSearchOpen(false)
         setModalOpen(false)
+        setDeletingTaskId(null)
+        setDeletingIdeaId(null)
       }
     }
-
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
-
   const activeProjects = projects.filter(
     (project) => project.status === 'In corso',
   )
-
   const completedTasks = tasks.filter((task) => task.completed).length
-
   const filteredProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-
     return projects.filter((project) => {
       const matchesQuery =
         !normalizedQuery ||
         project.name.toLowerCase().includes(normalizedQuery) ||
         project.category.toLowerCase().includes(normalizedQuery)
-
       const matchesPage =
         activePage !== 'Completati' || project.status === 'Completato'
-
       return matchesQuery && matchesPage
     })
   }, [projects, query, activePage])
-
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-
     return tasks.filter((task) => {
       const projectName =
         projects.find((project) => project.id === task.projectId)?.name ?? ''
-
       const matchesQuery =
         !normalizedQuery ||
         task.title.toLowerCase().includes(normalizedQuery) ||
         projectName.toLowerCase().includes(normalizedQuery)
-
       const matchesPage =
         activePage !== 'Completati' || task.completed
-
       return matchesQuery && matchesPage
     })
   }, [tasks, projects, query, activePage])
+
+  const filteredIdeas = useMemo(() => {
+    const normalizedQuery = ideaSearch.trim().toLowerCase()
+    if (!normalizedQuery) return ideas
+
+    return ideas.filter(
+      (idea) =>
+        idea.title.toLowerCase().includes(normalizedQuery) ||
+        idea.description.toLowerCase().includes(normalizedQuery),
+    )
+  }, [ideas, ideaSearch])
 
   function showPage(page: string) {
     setActivePage(page)
     setQuery('')
     setSearchOpen(false)
   }
-
   function toggleTask(taskId: string) {
     setWorkspace((current) => ({
       ...current,
       tasks: current.tasks.map((task) =>
-        task.id === taskId
-          ? { ...task, completed: !task.completed }
-          : task,
+        task.id === taskId ? { ...task, completed: !task.completed } : task,
       ),
     }))
   }
-
+  function startEditingTask(task: Task) {
+    setEditingTaskId(task.id)
+    setEditTaskTitle(task.title)
+    setEditTaskProjectId(task.projectId)
+    setEditTaskDue(task.due)
+    setDeletingTaskId(null)
+  }
+  function cancelEditingTask() {
+    setEditingTaskId(null)
+    setEditTaskTitle('')
+    setEditTaskProjectId('')
+    setEditTaskDue('Oggi')
+  }
+  function saveEditedTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const title = editTaskTitle.trim()
+    if (!title || !editingTaskId) return
+    setWorkspace((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        task.id === editingTaskId
+          ? {
+              ...task,
+              title,
+              projectId: editTaskProjectId,
+              due: editTaskDue,
+            }
+          : task,
+      ),
+    }))
+    cancelEditingTask()
+    setToast('Attività aggiornata.')
+  }
+  function deleteTask(taskId: string) {
+    setWorkspace((current) => ({
+      ...current,
+      tasks: current.tasks.filter((task) => task.id !== taskId),
+    }))
+    if (editingTaskId === taskId) {
+      cancelEditingTask()
+    }
+    setDeletingTaskId(null)
+    setToast('Attività eliminata.')
+  }
   function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
     const name = newProjectName.trim()
     if (!name) return
-
     const project: Project = {
       id: crypto.randomUUID(),
       name,
@@ -248,18 +297,75 @@ function App() {
       color: 'purple',
       status: 'In corso',
     }
-
     setWorkspace((current) => ({
       ...current,
       projects: [project, ...current.projects],
     }))
-
     setNewProjectName('')
     setNewProjectCategory('Sviluppo web')
     setModalOpen(false)
     setActivePage('Progetti')
     setQuery('')
     setToast(`Progetto "${name}" creato.`)
+  }
+  function resetIdeaForm() {
+    setIdeaTitle('')
+    setIdeaDescription('')
+    setEditingIdeaId(null)
+  }
+
+  function saveIdea(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const title = ideaTitle.trim()
+    const description = ideaDescription.trim()
+
+    if (!title) {
+      setToast('Inserisci un titolo per l’idea.')
+      return
+    }
+
+    if (editingIdeaId) {
+      setWorkspace((current) => ({
+        ...current,
+        ideas: current.ideas.map((idea) =>
+          idea.id === editingIdeaId ? { ...idea, title, description } : idea,
+        ),
+      }))
+      setToast('Idea aggiornata.')
+    } else {
+      const newIdea: Idea = {
+        id: crypto.randomUUID(),
+        title,
+        description,
+        createdAt: new Date().toISOString(),
+      }
+      setWorkspace((current) => ({
+        ...current,
+        ideas: [newIdea, ...current.ideas],
+      }))
+      setToast('Idea salvata.')
+    }
+
+    resetIdeaForm()
+  }
+
+  function startEditingIdea(idea: Idea) {
+    setEditingIdeaId(idea.id)
+    setIdeaTitle(idea.title)
+    setIdeaDescription(idea.description)
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  function deleteIdea(ideaId: string) {
+    setWorkspace((current) => ({
+      ...current,
+      ideas: current.ideas.filter((idea) => idea.id !== ideaId),
+    }))
+    if (editingIdeaId === ideaId) resetIdeaForm()
+    setDeletingIdeaId(null)
+    setToast('Idea eliminata.')
   }
 
   const pageDescription: Record<string, string> = {
@@ -269,12 +375,10 @@ function App() {
     Completati: 'Guarda quanta strada hai già fatto.',
     Idee: 'Ogni grande progetto comincia da un pensiero.',
   }
-
   const visibleTasks =
     activePage === 'Attività' || activePage === 'Completati'
       ? filteredTasks
       : filteredTasks.filter((task) => !task.completed)
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -287,9 +391,7 @@ function App() {
             <div className="brand-caption">Personal workspace</div>
           </div>
         </div>
-
         <div className="nav-label">Workspace</div>
-
         <nav className="nav-list" aria-label="Navigazione principale">
           <button
             className={`nav-item ${activePage === 'Panoramica' ? 'active' : ''}`}
@@ -325,16 +427,13 @@ function App() {
           </button>
           <button
             className={`nav-item ${activePage === 'Idee' ? 'active' : ''}`}
-            onClick={() => {
-              showPage('Idee')
-              setToast('Il tuo spazio idee: aggiungeremo questa funzione nel prossimo step.')
-            }}
+            onClick={() => showPage('Idee')}
           >
             <Lightbulb size={16} />
             Idee
+            <span className="nav-count">{ideas.length}</span>
           </button>
         </nav>
-
         <div className="sidebar-bottom">
           <div className="focus-card">
             <div className="eyebrow">Il tuo prossimo passo</div>
@@ -352,7 +451,6 @@ function App() {
               Trova il focus <ArrowRight size={13} />
             </button>
           </div>
-
           <div className="profile">
             <div className="avatar">AM</div>
             <div>
@@ -362,7 +460,6 @@ function App() {
           </div>
         </div>
       </aside>
-
       <main className="main-panel">
         <header className="topbar">
           <div className="breadcrumb">
@@ -370,7 +467,6 @@ function App() {
             <ChevronRight size={13} />
             <strong>{activePage}</strong>
           </div>
-
           <div className="topbar-actions">
             {searchOpen ? (
               <div className="search-field">
@@ -403,7 +499,6 @@ function App() {
                 <Search size={16} />
               </button>
             )}
-
             <button
               className="icon-button"
               aria-label="Notifiche"
@@ -412,9 +507,9 @@ function App() {
             >
               <Bell size={16} />
             </button>
-
             <button
               className="primary-button"
+              aria-label="Nuovo progetto"
               onClick={() => setModalOpen(true)}
             >
               <Plus size={15} />
@@ -422,29 +517,247 @@ function App() {
             </button>
           </div>
         </header>
-
         <div className="content">
           <section className="welcome-row">
             <div>
-              <div className="eyebrow">
-                DOMENICA, 11 OTTOBRE
-              </div>
+              <div className="eyebrow">DOMENICA, 11 OTTOBRE</div>
               <h1 className="page-title">
-                {activePage === 'Panoramica'
-                  ? <>Bentornato<span style={{ color: '#a78bfa' }}>.</span></>
-                  : activePage}
+                {activePage === 'Panoramica' ? (
+                  <>
+                    Bentornato
+                    <span style={{ color: '#a78bfa' }}>.</span>
+                  </>
+                ) : (
+                  activePage
+                )}
               </h1>
               <p className="page-description">
                 {pageDescription[activePage]}
               </p>
             </div>
-
             <div className="date-pill">
               <Activity size={14} />
               <span>Il tuo spazio, il tuo ritmo</span>
             </div>
           </section>
+          {activePage === 'Idee' ? (
+            <section className="ideas-page" aria-label="Archivio idee">
+              {projects.length > 0 && (
+                <article className="panel project-preview-panel">
+                  <div className="panel-header">
+                    <div>
+                      <h2 className="panel-title">Progetti in corso</h2>
+                      <p className="panel-subtitle">Continua da dove eri rimasto.</p>
+                    </div>
+                    <div className="stat-icon">
+                      <FolderKanban size={16} />
+                    </div>
+                  </div>
+                  <div className="project-list">
+                    {projects.map((project) => (
+                      <div className="project-row" key={project.id}>
+                        <div className="project-symbol">
+                          <FolderKanban size={17} />
+                        </div>
+                        <div className="project-info">
+                          <div className="project-name">{project.name}</div>
+                          <div className="project-meta">
+                            <span>{project.category}</span>
+                            <span className={`status-dot ${project.status === 'Completato' ? 'green' : project.status === 'In pausa' ? 'orange' : ''}`} />
+                            <span>{project.status}</span>
+                          </div>
+                        </div>
+                        <div className="project-progress">
+                          <div className="progress-label">
+                            <span>Progresso</span>
+                            <strong>{project.progress}%</strong>
+                          </div>
+                          <div className="progress-track">
+                            <div
+                              className="progress-fill"
+                              style={{ width: `${project.progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              )}
 
+              <article className="panel" style={{ marginBottom: 22 }}>
+                <div className="panel-header">
+                  <div>
+                    <h2 className="panel-title">
+                      {editingIdeaId ? 'Modifica idea' : 'Cattura un’idea'}
+                    </h2>
+                    <p className="panel-subtitle">
+                      Annota uno spunto e ritrovalo quando vuoi.
+                    </p>
+                  </div>
+                  <div className="stat-icon">
+                    <Lightbulb size={16} />
+                  </div>
+                </div>
+
+                <form className="idea-form" onSubmit={saveIdea}>
+                  <label className="form-label" htmlFor="idea-title">
+                    Titolo
+                  </label>
+                  <input
+                    id="idea-title"
+                    className="form-input"
+                    value={ideaTitle}
+                    onChange={(event) => setIdeaTitle(event.target.value)}
+                    placeholder="Es. Una nuova funzionalità per Afterlight"
+                    maxLength={120}
+                    required
+                  />
+
+                  <label className="form-label" htmlFor="idea-description">
+                    Descrizione{' '}
+                    <span style={{ color: '#858599', fontSize: 10, marginLeft: 6 }}>
+                      OPZIONALE
+                    </span>
+                  </label>
+                  <textarea
+                    id="idea-description"
+                    className="form-input"
+                    value={ideaDescription}
+                    onChange={(event) => setIdeaDescription(event.target.value)}
+                    placeholder="Aggiungi dettagli, possibili utilizzi o prossimi passi..."
+                    rows={4}
+                    maxLength={2000}
+                    style={{ resize: 'vertical', minHeight: 100 }}
+                  />
+
+                  <div className="idea-form-footer">
+                    <span className="panel-subtitle">{ideaDescription.length}/2000 caratteri</span>
+                    <div className="idea-form-actions">
+                      {editingIdeaId && (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={resetIdeaForm}
+                        >
+                          Annulla
+                        </button>
+                      )}
+                      <button className="primary-button" type="submit">
+                        {editingIdeaId ? <Check size={14} /> : <Plus size={14} />}
+                        {editingIdeaId ? 'Salva modifiche' : 'Salva idea'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </article>
+
+              <article className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h2 className="panel-title" style={{ marginBottom: 4 }}>
+                      Il tuo archivio
+                    </h2>
+                    <p className="panel-subtitle">
+                      {ideas.length === 0
+                        ? 'Le idee che salvi appariranno qui.'
+                        : `${ideas.length} ${ideas.length === 1 ? 'idea salvata' : 'idee salvate'}`}
+                    </p>
+                  </div>
+                  <div className="search-field idea-search-field">
+                    <Search size={15} />
+                    <input
+                      aria-label="Cerca idee"
+                      placeholder="Cerca idee..."
+                      value={ideaSearch}
+                      onChange={(event) => setIdeaSearch(event.target.value)}
+                    />
+                    {ideaSearch && (
+                      <button
+                        className="search-close"
+                        type="button"
+                        aria-label="Cancella ricerca"
+                        onClick={() => setIdeaSearch('')}
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="idea-list">
+                  {filteredIdeas.length > 0 ? (
+                    filteredIdeas.map((idea) => (
+                      <div className="idea-row" key={idea.id}>
+                        <div className="project-symbol idea-symbol">
+                          <Lightbulb size={16} />
+                        </div>
+                        <div className="idea-info">
+                          <h3 className="project-name">{idea.title}</h3>
+                          <div className="idea-description">
+                            {idea.description || 'Nessuna descrizione aggiunta.'}
+                          </div>
+                          <div className="project-meta">
+                            <span>
+                              {new Date(idea.createdAt).toLocaleDateString('it-IT', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="task-actions">
+                          <button
+                            className="icon-button"
+                            type="button"
+                            aria-label={`Modifica ${idea.title}`}
+                            title="Modifica idea"
+                            onClick={() => startEditingIdea(idea)}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            aria-label={`Elimina ${idea.title}`}
+                            title="Elimina idea"
+                            onClick={() => setDeletingIdeaId(idea.id)}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-state idea-empty-state">
+                      <div className="idea-empty-icon">
+                        <Lightbulb size={26} />
+                      </div>
+                      <h3>
+                        {ideaSearch ? 'Nessuna idea trovata' : 'La tua prossima idea parte da qui'}
+                      </h3>
+                      <p>
+                        {ideaSearch
+                          ? 'Prova con un termine diverso oppure cancella la ricerca.'
+                          : 'Scrivi la prima idea nel modulo qui sopra. Potrai modificarla o eliminarla in qualsiasi momento.'}
+                      </p>
+                      {ideaSearch && (
+                        <button
+                          className="secondary-button"
+                          style={{ marginTop: 14 }}
+                          onClick={() => setIdeaSearch('')}
+                        >
+                          Cancella ricerca
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </article>
+            </section>
+          ) : (
+            <>
           <section className="stats-grid" aria-label="Statistiche">
             <article className="stat-card">
               <div className="stat-top">
@@ -458,7 +771,6 @@ function App() {
                 <span>In movimento</span> · un passo alla volta
               </div>
             </article>
-
             <article className="stat-card">
               <div className="stat-top">
                 Attività completate
@@ -468,11 +780,15 @@ function App() {
               </div>
               <div className="stat-value">{completedTasks}</div>
               <div className="stat-foot">
-                <span>{tasks.length ? Math.round((completedTasks / tasks.length) * 100) : 0}%</span>
-                {' '}delle attività totali
+                <span>
+                  {tasks.length
+                    ? Math.round((completedTasks / tasks.length) * 100)
+                    : 0}
+                  %
+                </span>{' '}
+                delle attività totali
               </div>
             </article>
-
             <article className="stat-card">
               <div className="stat-top">
                 Progressi medi
@@ -483,14 +799,16 @@ function App() {
               <div className="stat-value">
                 {activeProjects.length
                   ? Math.round(
-                      activeProjects.reduce((sum, project) => sum + project.progress, 0) /
-                        activeProjects.length,
+                      activeProjects.reduce(
+                        (sum, project) => sum + project.progress,
+                        0,
+                      ) / activeProjects.length,
                     )
-                  : 0}%
+                  : 0}
+                %
               </div>
               <div className="stat-foot">Sui progetti in corso</div>
             </article>
-
             <article className="stat-card">
               <div className="stat-top">
                 Da completare
@@ -501,62 +819,49 @@ function App() {
               <div className="stat-value">
                 {tasks.filter((task) => !task.completed).length}
               </div>
-              <div className="stat-foot">Il prossimo passo è il più importante</div>
+              <div className="stat-foot">
+                Il prossimo passo è il più importante
+              </div>
             </article>
           </section>
-
           <section className="workspace-grid">
-            <article className="panel">
+            <article className="panel project-panel">
               <div className="panel-header">
                 <div>
-                  <h2 className="panel-title">
-                    {activePage === 'Panoramica' ? 'I tuoi progetti' : 'Progetti'}
-                  </h2>
+                  <h2 className="panel-title">Progetti</h2>
                   <p className="panel-subtitle">
-                    Idee che stanno diventando realtà
+                    Il tuo focus in un solo sguardo.
                   </p>
                 </div>
                 <button
                   className="text-button"
+                  type="button"
                   onClick={() => showPage('Progetti')}
                 >
-                  Vedi tutti <ArrowRight size={13} />
+                  Vedi tutti <ArrowRight size={12} />
                 </button>
               </div>
-
               <div className="project-list">
-                {filteredProjects.length ? (
-                  filteredProjects.map((project) => (
+                {filteredProjects.map((project) => {
+                  return (
                     <div className="project-row" key={project.id}>
                       <div className="project-symbol">
-                        {project.category === 'Apprendimento' ? (
-                          <Lightbulb size={17} />
-                        ) : project.category === 'Scripting' ? (
-                          <Command size={17} />
-                        ) : (
-                          <FolderKanban size={17} />
-                        )}
+                        <FolderKanban size={17} />
                       </div>
                       <div className="project-info">
                         <div className="project-name">{project.name}</div>
                         <div className="project-meta">
+                          <span>{project.category}</span>
                           <span className={`status-dot ${project.status === 'Completato' ? 'green' : project.status === 'In pausa' ? 'orange' : ''}`} />
-                          {project.category}
+                          <span>{project.status}</span>
                         </div>
                       </div>
                       <div className="project-progress">
                         <div className="progress-label">
-                          <span>Progressi</span>
-                          <span>{project.progress}%</span>
+                          <span>Progresso</span>
+                          <strong>{project.progress}%</strong>
                         </div>
-                        <div
-                          className="progress-track"
-                          role="progressbar"
-                          aria-label={`Progressi ${project.name}`}
-                          aria-valuenow={project.progress}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                        >
+                        <div className="progress-track">
                           <div
                             className="progress-fill"
                             style={{ width: `${project.progress}%` }}
@@ -564,79 +869,131 @@ function App() {
                         </div>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="empty-state">
-                    Nessun progetto trovato.
-                    <br />
-                    Prova un'altra ricerca o creane uno nuovo.
-                  </div>
-                )}
-              </div>
-
-              <div style={{ padding: '0 20px 18px' }}>
-                <button
-                  className="secondary-button"
-                  style={{ width: '100%' }}
-                  onClick={() => setModalOpen(true)}
-                >
-                  <Plus size={14} /> Crea un progetto
-                </button>
+                  )
+                })}
               </div>
             </article>
-
-            <article className="panel">
+            <article className="panel task-panel">
               <div className="panel-header">
                 <div>
-                  <h2 className="panel-title">Prossime attività</h2>
+                  <h2 className="panel-title">Attività</h2>
                   <p className="panel-subtitle">
-                    Le cose che meritano la tua attenzione
+                    Piccoli passi, progressi concreti.
                   </p>
                 </div>
                 <button
                   className="text-button"
-                  aria-label="Vedi tutte le attività"
+                  type="button"
                   onClick={() => showPage('Attività')}
                 >
-                  <ArrowRight size={15} />
+                  Vedi tutte le attività <ArrowRight size={12} />
                 </button>
               </div>
-
               <div className="task-list">
-                {visibleTasks.length ? (
-                  visibleTasks.map((task) => {
-                    const project = projects.find(
-                      (item) => item.id === task.projectId,
-                    )
-
-                    return (
-                      <div className="task-row" key={task.id}>
-                        <button
-                          className={`task-check ${task.completed ? 'checked' : ''}`}
-                          aria-label={
-                            task.completed
-                              ? `Segna ${task.title} come da fare`
-                              : `Completa ${task.title}`
-                          }
-                          aria-pressed={task.completed}
-                          onClick={() => toggleTask(task.id)}
+                {visibleTasks.length > 0 ? (
+                  visibleTasks.map((task) => (
+                    <div className="task-row" key={task.id}>
+                      {editingTaskId === task.id ? (
+                        <form
+                          className="task-edit-form"
+                          onSubmit={saveEditedTask}
                         >
-                          {task.completed && <Check size={12} />}
-                        </button>
-                        <div className="task-content">
-                          <div
-                            className={`task-name ${task.completed ? 'completed' : ''}`}
+                          <input
+                            className="form-input"
+                            aria-label="Titolo attività"
+                            placeholder="Titolo attività"
+                            value={editTaskTitle}
+                            onChange={(event) => setEditTaskTitle(event.target.value)}
+                            autoFocus
+                            required
+                          />
+                          <select
+                            className="form-input"
+                            aria-label="Progetto attività"
+                            value={editTaskProjectId}
+                            onChange={(event) => setEditTaskProjectId(event.target.value)}
                           >
-                            {task.title}
+                            {projects.map((project) => (
+                              <option key={project.id} value={project.id}>
+                                {project.name}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="form-input"
+                            aria-label="Scadenza attività"
+                            value={editTaskDue}
+                            onChange={(event) => setEditTaskDue(event.target.value)}
+                          >
+                            <option value="Oggi">Oggi</option>
+                            <option value="Domani">Domani</option>
+                            <option value="Questa settimana">Questa settimana</option>
+                            <option value="Senza scadenza">Senza scadenza</option>
+                          </select>
+                          <div className="task-edit-actions">
+                            <button className="primary-button" type="submit">
+                              <Check size={14} /> Salva
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={cancelEditingTask}
+                            >
+                              Annulla
+                            </button>
                           </div>
-                          <div className="task-project">
-                            {project?.name ?? 'Progetto eliminato'}
+                        </form>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={`task-check ${task.completed ? 'checked' : ''}`}
+                            aria-label={
+                              task.completed
+                                ? `Segna ${task.title} come da fare`
+                                : `Completa ${task.title}`
+                            }
+                            aria-pressed={task.completed}
+                            onClick={() => toggleTask(task.id)}
+                          >
+                            {task.completed && <Check size={12} />}
+                          </button>
+                          <div className="task-content">
+                            <div
+                              className={`task-name ${task.completed ? 'completed' : ''}`}
+                            >
+                              {task.title}
+                            </div>
+                            <div className="task-project">
+                              {projects.find((item) => item.id === task.projectId)?.name ??
+                                'Progetto eliminato'}
+                            </div>
                           </div>
-                        </div>
-                        <div className="task-due">{task.due}</div>
-                      </div>
-                    )
-                  })
+                          <div className="task-due">{task.due}</div>
+                          <div className="task-actions">
+                            <button
+                              type="button"
+                              className="icon-button"
+                              aria-label={`Modifica ${task.title}`}
+                              title="Modifica attività"
+                              onClick={() => startEditingTask(task)}
+                            >
+                              <span aria-hidden="true">✎</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-button"
+                              aria-label={`Elimina ${task.title}`}
+                              title="Elimina attività"
+                              onClick={() => setDeletingTaskId(task.id)}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))
                 ) : (
                   <div className="empty-state">
                     Nessuna attività qui.
@@ -647,7 +1004,6 @@ function App() {
               </div>
             </article>
           </section>
-
           <section className="lower-grid">
             <article className="panel">
               <div className="panel-header">
@@ -662,7 +1018,10 @@ function App() {
                 </div>
               </div>
               <div className="activity-content">
-                <div className="activity-chart" aria-label="Grafico dimostrativo dell'attività settimanale">
+                <div
+                  className="activity-chart"
+                  aria-label="Grafico dimostrativo dell'attività settimanale"
+                >
                   {[
                     { day: 'Lun', a: 35, b: 55 },
                     { day: 'Mar', a: 60, b: 42 },
@@ -674,8 +1033,14 @@ function App() {
                   ].map((item) => (
                     <div className="chart-day" key={item.day}>
                       <div className="chart-bars">
-                        <div className="chart-bar" style={{ height: `${item.a}%` }} />
-                        <div className="chart-bar secondary" style={{ height: `${item.b}%` }} />
+                        <div
+                          className="chart-bar"
+                          style={{ height: `${item.a}%` }}
+                        />
+                        <div
+                          className="chart-bar secondary"
+                          style={{ height: `${item.b}%` }}
+                        />
                       </div>
                       <span className="chart-day-label">{item.day}</span>
                     </div>
@@ -686,12 +1051,13 @@ function App() {
                 </p>
               </div>
             </article>
-
             <article className="panel">
               <div className="panel-header">
                 <div>
                   <h2 className="panel-title">Una cosa alla volta</h2>
-                  <p className="panel-subtitle">Un pensiero da tenere con te</p>
+                  <p className="panel-subtitle">
+                    Un pensiero da tenere con te
+                  </p>
                 </div>
                 <div className="stat-icon">
                   <Sparkles size={15} />
@@ -707,27 +1073,32 @@ function App() {
               </div>
             </article>
           </section>
+            </>
+          )}
 
-          <footer style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            gap: 12,
-            flexWrap: 'wrap',
-            marginTop: 25,
-            color: '#686877',
-            fontSize: 10,
-          }}>
+          <footer
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              marginTop: 25,
+              color: '#686877',
+              fontSize: 10,
+            }}
+          >
             <span>AFTERLIGHT © 2026</span>
             <span>Costruito un passo alla volta.</span>
           </footer>
         </div>
       </main>
-
       {modalOpen && (
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setModalOpen(false)
+            if (event.target === event.currentTarget) {
+              setModalOpen(false)
+            }
           }}
         >
           <section
@@ -743,6 +1114,7 @@ function App() {
                 <p>Le idee prendono forma quando dai loro un nome.</p>
               </div>
               <button
+                type="button"
                 className="icon-button"
                 aria-label="Chiudi"
                 onClick={() => setModalOpen(false)}
@@ -750,7 +1122,6 @@ function App() {
                 <X size={16} />
               </button>
             </div>
-
             <form onSubmit={createProject}>
               <label className="form-label" htmlFor="project-name">
                 Nome del progetto
@@ -765,7 +1136,6 @@ function App() {
                 onChange={(event) => setNewProjectName(event.target.value)}
                 required
               />
-
               <label className="form-label" htmlFor="project-category">
                 Categoria
               </label>
@@ -781,7 +1151,6 @@ function App() {
                 <option>Personale</option>
                 <option>Altro</option>
               </select>
-
               <div className="modal-actions">
                 <button
                   type="button"
@@ -795,6 +1164,84 @@ function App() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+      {deletingTaskId && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setDeletingTaskId(null)
+            }
+          }}
+        >
+          <section
+            className="modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-task-title"
+            aria-describedby="delete-task-description"
+          >
+            <div className="modal-header">
+              <div>
+                <div className="eyebrow">CONFERMA</div>
+                <h2 id="delete-task-title">Eliminare l'attività?</h2>
+                <p id="delete-task-description">
+                  Questa attività verrà rimossa dal tuo piano.
+                </p>
+                <p>Questa operazione non può essere annullata.</p>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Chiudi dialog"
+                onClick={() => setDeletingTaskId(null)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setDeletingTaskId(null)}
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => deleteTask(deletingTaskId)}
+              >
+                Elimina
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {deletingIdeaId && (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDeletingIdeaId(null)
+          }}
+        >
+          <section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-idea-title">
+            <div className="modal-header">
+              <div>
+                <div className="eyebrow">CONFERMA</div>
+                <h2 id="delete-idea-title">Eliminare questa idea?</h2>
+                <p>L’idea verrà rimossa dal tuo archivio. Questa operazione non può essere annullata.</p>
+              </div>
+              <button type="button" className="icon-button" aria-label="Chiudi dialog" onClick={() => setDeletingIdeaId(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setDeletingIdeaId(null)}>Annulla</button>
+              <button type="button" className="primary-button" onClick={() => deleteIdea(deletingIdeaId)}>Elimina idea</button>
+            </div>
           </section>
         </div>
       )}
@@ -815,5 +1262,4 @@ function App() {
     </div>
   )
 }
-
 export default App
