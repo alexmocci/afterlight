@@ -4,22 +4,23 @@ This roadmap reflects the repository audit performed on 11 October 2026. Work is
 planned as small, verifiable increments; priorities may change if implementation
 reveals data-compatibility or deployment risks.
 
-## Audit baseline
+## Current audit baseline
 
-- The app is a single React/TypeScript component with projects, task status/edit/delete,
-  idea CRUD, page navigation, and browser `localStorage` persistence.
-- Existing data uses `afterlight-workspace-v1`; ideas were added compatibly, but
-  persisted records are otherwise trusted after checking that `projects` and `tasks`
-  are arrays.
-- Task due values are static labels (`Oggi`, `Domani`, etc.); there is no task
-  creation flow or project editing/status/progress management.
-- The global search filters projects and tasks; ideas have a separate search.
-- The displayed date is hard-coded, and the dashboard activity chart is explicitly
-  demonstrative rather than based on real activity.
-- `README.md` is still the Vite starter template. The GitHub Pages workflow runs
-  tests and a production build, but not lint.
-- Baseline verification: 8 Vitest tests passed, `npm run lint` passed, and
-  `npm run build` passed.
+- The app is a React/TypeScript single-page workspace with projects, tasks, ideas,
+  dashboard summaries, global and idea search, filters, and CRUD flows.
+- Workspace data remains local in `afterlight-workspace-v1`; imports and exports
+  use a versioned JSON envelope, and malformed saved data is backed up before
+  normalization is persisted.
+- Project status/progress, task due dates and priorities, completed/overdue
+  states, and local-calendar date handling are implemented.
+- `README.md` documents development, privacy, data backups, checks, and Pages.
+  GitHub Actions runs tests, lint, and the production build.
+- The new responsive audit found that the old horizontally scrolling mobile nav
+  expanded the document to 593 px on a 320–430 px viewport. Desktop layouts were
+  already using responsive grids, but touch navigation and compact project/task
+  rows needed a dedicated small-screen treatment.
+- Before this responsive increment: 28 Vitest tests passed; lint and production
+  build passed.
 
 ## Prioritized work
 
@@ -67,6 +68,41 @@ keyboard-accessible dialogs are tested; mobile layout remains usable. The header
 date and overdue summaries are now data-derived, and the demo chart is labeled as
 illustrative. Dialogs now trap and restore focus; global search includes matching
 ideas, and the search/form layout adapts to narrow screens.
+
+### P1 — Responsive layout and mobile navigation
+
+- [x] Remove the mobile navigation's min-content overflow and prevent the page
+  from exceeding the narrow viewport.
+- [x] Replace the clipped horizontal navigation with an accessible mobile drawer
+  that closes on section selection, Escape, or tapping outside.
+- [x] Keep project/task/idea actions and forms usable at compact widths, and keep
+  statistics, filters, and dialogs within the viewport.
+- [x] Apply dynamic viewport and safe-area sizing, and prevent iOS input zoom with
+  readable input text sizing.
+- [x] Validate all six sections across the eight requested viewport sizes and
+  exercise navigation, task creation, modal bounds, and persistence.
+
+Acceptance: no horizontal overflow in any tested section/viewport pair; keyboard,
+touch, modal, and persistence flows remain usable. Browser validation covered all
+48 combinations:
+
+| Viewport | Mobile drawer | Statistic columns | Horizontal overflow |
+| --- | --- | ---: | --- |
+| 320 × 700 | Yes | 2 | None |
+| 375 × 812 | Yes | 2 | None |
+| 390 × 844 | Yes | 2 | None |
+| 430 × 932 | Yes | 2 | None |
+| 768 × 1024 | No (tablet sidebar) | 2 | None |
+| 1024 × 768 | No (tablet sidebar) | 2 | None |
+| 1366 × 768 | No (desktop sidebar) | 4 | None |
+| 1920 × 1080 | No (desktop sidebar) | 4 | None |
+
+At 320 × 700 the project dialog remained entirely inside the viewport. The mobile
+Drawer was checked for focus trapping/restoration, Escape, outside click, section
+selection, and resizing from mobile to desktop and back; task creation persisted
+after a page reload. These checks ran in the integrated Chromium browser.
+Physical iOS Safari was not available, so its safe-area and virtual-keyboard
+behavior still needs device verification.
 
 ### P2 — Local data portability
 

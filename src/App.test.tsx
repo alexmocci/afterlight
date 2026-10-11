@@ -1,6 +1,6 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import App from './App'
 import {
   getLocalDate,
@@ -587,6 +587,96 @@ it('include le idee nei risultati della ricerca globale', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Apri idee' }))
   expect(screen.getByRole('heading', { level: 1, name: 'Idee' })).toBeInTheDocument()
   expect(screen.getByText('App per leggere')).toBeInTheDocument()
+})
+
+it('gestisce il drawer mobile con tastiera, backdrop e selezione sezione', async () => {
+  const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, 'matchMedia')
+  const mediaListeners = new Set<EventListener>()
+  let isMobileViewport = true
+  const mediaQueryList = {
+    get matches() {
+      return isMobileViewport
+    },
+    media: '(max-width: 700px)',
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+      if (typeof listener === 'function') mediaListeners.add(listener)
+    },
+    removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+      if (typeof listener === 'function') mediaListeners.delete(listener)
+    },
+    dispatchEvent: (event: Event) => {
+      mediaListeners.forEach((listener) => listener(event))
+      return true
+    },
+  } satisfies MediaQueryList
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: () => mediaQueryList,
+  })
+
+  try {
+    const { container } = render(<App />)
+    const menuButton = container.querySelector<HTMLButtonElement>(
+      '.mobile-menu-toggle',
+    )!
+    const drawerCloseButton = container.querySelector<HTMLButtonElement>(
+      '.mobile-nav-close',
+    )!
+    menuButton.style.display = 'grid'
+    drawerCloseButton.style.display = 'grid'
+
+    fireEvent.click(menuButton)
+    expect(menuButton).toHaveAttribute('aria-expanded', 'true')
+    await waitFor(() => expect(drawerCloseButton).toHaveFocus())
+    expect(document.querySelector('main')).toHaveAttribute('inert')
+    expect(document.body.style.overflow).toBe('hidden')
+
+    fireEvent.keyDown(drawerCloseButton, { key: 'Tab', shiftKey: true })
+    expect(container.querySelector('.focus-link')).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' })
+    expect(drawerCloseButton).toHaveFocus()
+
+    fireEvent.keyDown(drawerCloseButton, { key: 'Escape' })
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+    expect(menuButton).toHaveFocus()
+    expect(document.body.style.overflow).toBe('')
+
+    fireEvent.click(menuButton)
+    const backdrop = container.querySelector<HTMLButtonElement>(
+      '.mobile-nav-backdrop',
+    )!
+    backdrop.style.display = 'block'
+    fireEvent.click(backdrop)
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(menuButton)
+    fireEvent.click(container.querySelectorAll('.nav-item')[1])
+    expect(screen.getByRole('heading', { level: 1, name: 'Progetti' })).toBeInTheDocument()
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(menuButton)
+    isMobileViewport = false
+    mediaQueryList.dispatchEvent(new Event('change'))
+    await waitFor(() => {
+      expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+      expect(document.querySelector('main')).not.toHaveAttribute('inert')
+      expect(document.body.style.overflow).toBe('')
+    })
+
+    isMobileViewport = true
+    mediaQueryList.dispatchEvent(new Event('change'))
+    await waitFor(() => expect(menuButton).toHaveAttribute('aria-expanded', 'false'))
+  } finally {
+    cleanup()
+    if (matchMediaDescriptor) {
+      Object.defineProperty(window, 'matchMedia', matchMediaDescriptor)
+    } else {
+      Reflect.deleteProperty(window, 'matchMedia')
+    }
+  }
 })
 
 })

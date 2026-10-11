@@ -13,6 +13,8 @@ restore.
 - Search projects, tasks, and ideas from the global search.
 - Review overdue tasks and workspace summaries.
 - Export a versioned JSON backup and validate an import before replacing data.
+- Use the mobile navigation drawer and responsive project, task, and idea views
+  on narrow screens.
 
 ## Requirements
 

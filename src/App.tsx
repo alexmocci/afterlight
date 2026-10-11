@@ -2,8 +2,10 @@ import {
   type ChangeEvent,
   type FormEvent,
   type MouseEvent,
+  useCallback,
   useEffect,
   useMemo,
+  useSyncExternalStore,
   useRef,
   useState,
 } from 'react'
@@ -20,6 +22,7 @@ import {
   LayoutDashboard,
   Lightbulb,
   ListTodo,
+  Menu,
   Pencil,
   Plus,
   Search,
@@ -54,6 +57,16 @@ const todayLabel = new Date()
   })
   .toLocaleUpperCase('it-IT')
 
+const mobileViewportQuery = '(max-width: 700px)'
+
+function getMobileViewportSnapshot() {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(mobileViewportQuery).matches
+  )
+}
+
 function App() {
   const [loadResult] = useState(loadWorkspace)
   const [workspace, setWorkspace] = useState<WorkspaceData>(loadResult.workspace)
@@ -61,6 +74,26 @@ function App() {
   const recoveryData = useRef(loadResult.recoveryData)
   const initialWorkspace = useRef(loadResult.workspace)
   const [activePage, setActivePage] = useState('Panoramica')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const subscribeToMobileViewport = useCallback((onChange: () => void) => {
+    if (typeof window.matchMedia !== 'function') return () => undefined
+    const mediaQuery = window.matchMedia(mobileViewportQuery)
+    function handleViewportChange() {
+      if (!mediaQuery.matches) setMobileNavOpen(false)
+      onChange()
+    }
+    mediaQuery.addEventListener('change', handleViewportChange)
+    return () => mediaQuery.removeEventListener('change', handleViewportChange)
+  }, [])
+  const isMobileViewport = useSyncExternalStore(
+    subscribeToMobileViewport,
+    getMobileViewportSnapshot,
+    () => false,
+  )
+  const mobileDrawerOpen = isMobileViewport && mobileNavOpen
+  const mobileMenuButton = useRef<HTMLButtonElement>(null)
+  const mobileNav = useRef<HTMLElement>(null)
+  const mobileNavCloseButton = useRef<HTMLButtonElement>(null)
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -110,6 +143,40 @@ function App() {
     }
   }, [workspace])
   useEffect(() => {
+    if (!mobileDrawerOpen) return
+
+    const previousOverflow = document.body.style.overflow
+    const menuButton = mobileMenuButton.current
+    document.body.style.overflow = 'hidden'
+    const focusFrame = window.requestAnimationFrame(() => {
+      mobileNavCloseButton.current?.focus({ preventScroll: true })
+    })
+
+    function trapDrawerFocus(event: KeyboardEvent) {
+      if (event.key !== 'Tab') return
+      const focusable = mobileNav.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      )
+      if (!focusable?.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', trapDrawerFocus)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', trapDrawerFocus)
+      menuButton?.focus()
+    }
+  }, [mobileDrawerOpen])
+  useEffect(() => {
     if (!toast) return
     const timeout = window.setTimeout(() => setToast(''), 3000)
     return () => window.clearTimeout(timeout)
@@ -126,6 +193,7 @@ function App() {
         setDeletingProjectId(null)
         setDeletingTaskId(null)
         setDeletingIdeaId(null)
+        setMobileNavOpen(false)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -240,6 +308,7 @@ function App() {
     setActivePage(page)
     setQuery('')
     setSearchOpen(false)
+    setMobileNavOpen(false)
   }
   function toggleTask(taskId: string) {
     setWorkspace((current) => ({
@@ -570,7 +639,30 @@ function App() {
   })
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {mobileDrawerOpen && (
+        <button
+          className="mobile-nav-backdrop"
+          type="button"
+          aria-label="Chiudi menu di navigazione"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+      <aside
+        ref={mobileNav}
+        id="mobile-navigation"
+        className={`sidebar ${mobileDrawerOpen ? 'mobile-nav-open' : ''}`}
+        aria-hidden={isMobileViewport && !mobileDrawerOpen}
+        inert={isMobileViewport && !mobileDrawerOpen}
+        onTransitionEnd={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            event.propertyName === 'transform' &&
+            mobileDrawerOpen
+          ) {
+            mobileNavCloseButton.current?.focus({ preventScroll: true })
+          }
+        }}
+      >
         <div className="brand">
           <div className="brand-mark">
             <Sparkles size={19} strokeWidth={2.2} />
@@ -579,6 +671,15 @@ function App() {
             <div className="brand-name">afterlight</div>
             <div className="brand-caption">Personal workspace</div>
           </div>
+          <button
+            ref={mobileNavCloseButton}
+            className="icon-button mobile-nav-close"
+            type="button"
+            aria-label="Chiudi menu di navigazione"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <X size={18} />
+          </button>
         </div>
         <div className="nav-label">Workspace</div>
         <nav className="nav-list" aria-label="Navigazione principale">
@@ -656,12 +757,29 @@ function App() {
           </div>
         </div>
       </aside>
-      <main className="main-panel">
+      <main
+        className="main-panel"
+        aria-hidden={mobileDrawerOpen}
+        inert={mobileDrawerOpen}
+      >
         <header className="topbar">
-          <div className="breadcrumb">
-            <span>Workspace</span>
-            <ChevronRight size={13} />
-            <strong>{activePage}</strong>
+          <div className="topbar-leading">
+            <button
+              ref={mobileMenuButton}
+              className="icon-button mobile-menu-toggle"
+              type="button"
+              aria-label="Apri menu di navigazione"
+              aria-controls="mobile-navigation"
+              aria-expanded={mobileDrawerOpen}
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu size={18} />
+            </button>
+            <div className="breadcrumb">
+              <span>Workspace</span>
+              <ChevronRight size={13} />
+              <strong>{activePage}</strong>
+            </div>
           </div>
           <div className="topbar-actions">
             {searchOpen ? (
