@@ -149,13 +149,44 @@ it('ripristina i progetti salvati al caricamento', () => {
 
 
 it('gestisce dati salvati non validi senza bloccare la dashboard', () => {
-  localStorage.setItem('afterlight-workspace-v1', '{json non valido')
+  const corruptedWorkspace = '{json non valido'
+  localStorage.setItem('afterlight-workspace-v1', corruptedWorkspace)
 
   render(<App />)
 
   expect(screen.getAllByText('Portfolio personale').length).toBeGreaterThan(0)
   expect(screen.getAllByText('Imparare React').length).toBeGreaterThan(0)
   expect(screen.getAllByText('Automazioni Python').length).toBeGreaterThan(0)
+  expect(screen.getByRole('alert')).toHaveTextContent('non sono leggibili')
+  expect(localStorage.getItem('afterlight-workspace-v1')).toBe(corruptedWorkspace)
+})
+
+it('conserva i dati corrotti prima di sovrascriverli dopo una modifica esplicita', () => {
+  const corruptedWorkspace = '{json non valido'
+  localStorage.setItem('afterlight-workspace-v1', corruptedWorkspace)
+
+  render(<App />)
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: 'Completa Completare la dashboard',
+    }),
+  )
+
+  const recoveryKeys = Object.keys(localStorage).filter((key) =>
+    key.startsWith('afterlight-workspace-v1-recovery-'),
+  )
+  expect(recoveryKeys).toHaveLength(1)
+  expect(localStorage.getItem(recoveryKeys[0])).toBe(corruptedWorkspace)
+  expect(
+    JSON.parse(localStorage.getItem('afterlight-workspace-v1')!).tasks,
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        title: 'Completare la dashboard',
+        completed: true,
+      }),
+    ]),
+  )
 })
 
 

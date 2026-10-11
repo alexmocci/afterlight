@@ -25,18 +25,19 @@ reveals data-compatibility or deployment risks.
 
 ### P0 — Preserve and validate user data
 
-- [ ] Extract workspace types, defaults, and storage code into a small testable module.
-- [ ] Validate each persisted project, task, and idea before rendering it.
-- [ ] Retain valid records when sibling records are malformed; default optional and
+- [x] Extract workspace types, defaults, and storage code into a small testable module.
+- [x] Validate each persisted project, task, and idea before rendering it.
+- [x] Retain valid records when sibling records are malformed; default optional and
   legacy fields without discarding valid workspace data.
-- [ ] Preserve the existing storage key and old records; avoid writing demo defaults
+- [x] Preserve the existing storage key and old records; avoid writing demo defaults
   over malformed or inaccessible storage.
-- [ ] Report read/write failures in the UI and cover legacy, corrupt, partial, and
+- [x] Report read/write failures in the UI and cover legacy, corrupt, partial, and
   unavailable storage with tests.
 
 Acceptance: valid legacy workspaces load unchanged; malformed records cannot crash
 the app or silently replace usable records; storage errors are visible; targeted and
-full tests pass.
+full tests pass. Completed in `fix: validate and preserve saved workspace data`;
+all 16 tests, lint, and production build passed.
 
 ### P1 — Complete core project and task workflows
 

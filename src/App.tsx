@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   ArrowRight,
@@ -19,126 +19,20 @@ import {
   X,
 } from 'lucide-react'
 import './index.css'
-type Project = {
-  id: string
-  name: string
-  category: string
-  progress: number
-  color: string
-  status: 'In corso' | 'In pausa' | 'Completato'
-}
-type Task = {
-  id: string
-  title: string
-  projectId: string
-  due: string
-  completed: boolean
-}
-type Idea = {
-  id: string
-  title: string
-  description: string
-  createdAt: string
-}
-const initialProjects: Project[] = [
-  {
-    id: 'p1',
-    name: 'Portfolio personale',
-    category: 'Sviluppo web',
-    progress: 72,
-    color: 'purple',
-    status: 'In corso',
-  },
-  {
-    id: 'p2',
-    name: 'Imparare React',
-    category: 'Apprendimento',
-    progress: 48,
-    color: 'blue',
-    status: 'In corso',
-  },
-  {
-    id: 'p3',
-    name: 'Automazioni Python',
-    category: 'Scripting',
-    progress: 25,
-    color: 'orange',
-    status: 'In corso',
-  },
-]
-const initialTasks: Task[] = [
-  {
-    id: 't1',
-    title: 'Completare la dashboard',
-    projectId: 'p1',
-    due: 'Oggi',
-    completed: false,
-  },
-  {
-    id: 't2',
-    title: 'Ripassare gli hook di React',
-    projectId: 'p2',
-    due: 'Oggi',
-    completed: false,
-  },
-  {
-    id: 't3',
-    title: 'Sistemare la documentazione',
-    projectId: 'p1',
-    due: 'Domani',
-    completed: true,
-  },
-  {
-    id: 't4',
-    title: 'Scrivere uno script di backup',
-    projectId: 'p3',
-    due: 'Domani',
-    completed: false,
-  },
-]
-const storageKey = 'afterlight-workspace-v1'
-type WorkspaceData = {
-  projects: Project[]
-  tasks: Task[]
-  ideas: Idea[]
-}
-function loadWorkspace(): WorkspaceData {
-  try {
-    const saved = localStorage.getItem(storageKey)
-    if (saved) {
-      const parsed: unknown = JSON.parse(saved)
-      if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        'projects' in parsed &&
-        'tasks' in parsed &&
-        Array.isArray(parsed.projects) &&
-        Array.isArray(parsed.tasks)
-      ) {
-        const data = parsed as {
-          projects: Project[]
-          tasks: Task[]
-          ideas?: Idea[]
-        }
-        // Migrazione compatibile: i workspace precedenti non avevano ancora le idee.
-        return {
-          projects: data.projects,
-          tasks: data.tasks,
-          ideas: Array.isArray(data.ideas) ? data.ideas : [],
-        }
-      }
-    }
-  } catch {
-    // Se i dati salvati non sono leggibili, usiamo i dati iniziali.
-  }
-  return {
-    projects: initialProjects,
-    tasks: initialTasks,
-    ideas: [],
-  }
-}
+import {
+  loadWorkspace,
+  saveWorkspace,
+  type Idea,
+  type Project,
+  type Task,
+  type WorkspaceData,
+} from './lib/workspace'
 function App() {
-  const [workspace, setWorkspace] = useState<WorkspaceData>(loadWorkspace)
+  const [loadResult] = useState(loadWorkspace)
+  const [workspace, setWorkspace] = useState<WorkspaceData>(loadResult.workspace)
+  const [storageMessage, setStorageMessage] = useState(loadResult.warning)
+  const recoveryData = useRef(loadResult.recoveryData)
+  const initialWorkspace = useRef(loadResult.workspace)
   const [activePage, setActivePage] = useState('Panoramica')
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -159,10 +53,13 @@ function App() {
 
   const { projects, tasks, ideas } = workspace
   useEffect(() => {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(workspace))
-    } catch {
-      console.error('Salvataggio locale non disponibile in questo browser.')
+    if (workspace === initialWorkspace.current) return
+    const result = saveWorkspace(workspace, recoveryData.current)
+    if (result.ok) {
+      recoveryData.current = null
+      setStorageMessage(null)
+    } else {
+      setStorageMessage(result.error)
     }
   }, [workspace])
   useEffect(() => {
@@ -540,6 +437,11 @@ function App() {
               <span>Il tuo spazio, il tuo ritmo</span>
             </div>
           </section>
+          {storageMessage && (
+            <div className="storage-warning" role="alert">
+              {storageMessage}
+            </div>
+          )}
           {activePage === 'Idee' ? (
             <section className="ideas-page" aria-label="Archivio idee">
               {projects.length > 0 && (

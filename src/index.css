@@ -336,6 +336,17 @@ button:disabled {
   margin-bottom: 30px;
 }
 
+.storage-warning {
+  margin: -10px 0 22px;
+  padding: 12px 14px;
+  border: 1px solid #f6bd7545;
+  border-radius: 10px;
+  background: #f6bd7510;
+  color: #f6d6a7;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .page-title {
   margin: 10px 0 9px;
   font-size: clamp(27px, 3vw, 37px);
