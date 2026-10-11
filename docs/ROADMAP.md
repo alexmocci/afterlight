@@ -84,12 +84,13 @@ increment; invalid files and cancelled imports leave the current workspace intac
   tests, and GitHub Pages information.
 - [x] Add lint to deployment checks if compatible with the existing workflow.
 - [x] Keep the existing Pages base path and official artifact/deploy actions.
-- [ ] Verify GitHub Actions/deployment remotely when repository access allows it.
+- [x] Verify GitHub Actions/deployment remotely when repository access allows it.
 
 Acceptance: documented commands match `package.json`, all configured checks pass,
 and the Pages workflow still builds the correct `/afterlight/` site. Local tests,
-lint, and production build pass (28 tests); remote deployment verification remains
-pending.
+lint, and production build pass (28 tests). GitHub Actions run
+[38154322240](https://github.com/alexmocci/afterlight/actions/runs/38154322240)
+completed successfully for the published commit.
 
 ## Delivery notes
 
